@@ -8,9 +8,8 @@ Step-indexed LR: soundness only, no termination.
 
 Full higher-order mutable references (TRef T, for any T)
 
-This file (stlc_ref_indexed2.v):
-- improved equiv for indexed types, use Coq's
-  equality based on extensionality principle
+(First attempt, equivalence of approximated types is
+more complex than needed)
 
 *)
 
@@ -292,12 +291,6 @@ Fixpoint vtypen n: Type :=
   | S n => forall (nx: nat) (M: list (vtypen (n-nx))) (v: vl), Prop
   end.
 
-(* alternative:
-
-  | S n => forall (j: nat) (M: list (vtypen (n-(n-j)))) (v: vl), Prop
-
- *)
-
 Definition sttyn n := list (vtypen n).
 
 
@@ -310,7 +303,7 @@ Definition stty := list vtype.
 (* the empty type *)
 Definition vtnone n: vtypen n :=
   match n with
-  | 0 => False
+  | 0 => True
   | S n => fun nx (M: list (vtypen (n-nx))) (v: vl) => False
   end.
 
@@ -393,7 +386,7 @@ Definition stty_approx n (M: stty): stty :=
 
 Definition vt_elem n nx (vt: vtypen n) (M: stty) (v: vl) :=
   match n, vt, M with
-  | 0, _, _ => vt
+  | 0, _, _ => True
   | S n, vt, M => vt nx (stty_pick _  M) v
   end.
 
@@ -401,29 +394,23 @@ Definition vtyp_elem n (vt: vtype) (M: stty) (v: vl) :=
   forall nx, vt_elem n nx (vt n) M v. 
 
 
-(*
+
 Definition vtyp_equiv0 (vt1 vt2: vtype) :=
   forall nx M' vx,
     vtyp_elem nx vt1 M' vx <->
     vtyp_elem nx vt2 M' vx.
 
-Definition vtyp_equiv1 (vt1 vt2: vtype) :=
-  forall nx M' vx,
-    vt_elem nx 0 (vt1 nx) M' vx <-> (* minus 0 *)
-    vt_elem nx 0 (vt2 nx) M' vx.
-*)
-
 
 (* equivalence on vtype up to n-approximation *)
 
 Definition vtyp_equiv n (vt1 vt2: vtype) :=
-  (vt_approx n vt1) = (vt_approx n vt2).
+  vtyp_equiv0 (vt_approx n vt1) (vt_approx n vt2).
 
 
 Definition istypeB nu (vt: vtype) :=     
-  forall nx nx1 n (l1: nx <= n) M' vx, n < nu ->
-    (vt_elem nx nx1 (vt nx)  M' vx <->
-     vt_elem nx nx1 (vt_dec n nx l1 (vt n)) M' vx).
+  forall nx nx1 n (l1: S nx <= n) M' vx, n < nu ->
+    (vt (S nx) nx1 (stty_pick (nx - nx1) M') vx <->
+     vt_dec n (S nx) l1 (vt n) nx1 (stty_pick (nx - nx1) M') vx).
 
 Definition isstoretypeB nu (M: list vtype) :=
   forall x vt, indexr x M = Some vt -> istypeB nu vt.
@@ -563,145 +550,35 @@ Qed.
 (* directly relate physical and logical approximation:
    we can use this as a reflection princple to move
    back and forth *)
-
-(*
 Lemma vt_approx_equiv: forall n j vt,
     istypeB n vt -> j < n ->
     vtyp_equiv0 (vt_apprx j vt) (vt_approx (S j) vt).
 Proof.
   intros. 
-  unfold vtyp_equiv0, vtyp_elem in *. split; intros.
+  unfold vtyp_equiv0, vtyp_elem, vt_elem in *. split; intros.
   - specialize (H1 (nx0)). 
-    (* destruct nx. eauto. *)
+    destruct nx. eauto.
     unfold vt_approx, vt_apprx, vt_wrap in *.
-    remember (le_dec (nx) j). destruct s. 2: destruct nx, H1.
-    remember (lt_dec nx (S j)). destruct s. 2: lia. 
+    remember (le_dec (S nx) j). destruct s. 2: destruct H1. 
+    remember (lt_dec (S nx) (S j)). destruct s. 2: lia.
     eapply H. 2: eauto. lia.
   - specialize (H1 (nx0)). 
-    (* destruct nx. eauto. *)
+    destruct nx. eauto.
     unfold vt_approx, vt_apprx, vt_wrap in *.
-    remember (lt_dec nx (S j)). destruct s. 2: destruct nx,H1. 
-    remember (le_dec nx j). destruct s. 2: lia.
+    remember (lt_dec (S nx) (S j)). destruct s. 2: destruct H1. 
+    remember (le_dec (S nx) j). destruct s. 2: lia.
     eapply H. 2: eauto. lia.
 Qed.
 
 
-Lemma vt_approx_equiv': forall j vt,
-    vtyp_equiv0 (vt_apprx j vt) (vt_approx (S j) vt) ->
-    istypeB (S j) vt.
-Proof.
-  intros. 
-  unfold vtyp_equiv0, vtyp_elem in *. split; intros.
-  - specialize (H nx M' vx). destruct H as (IH1 & IH2).
-    (* destruct n. simpl. destruct (aux_lt1 nx l1).
-    unfold vt_apprx, vt_wrap in *.
-    remember (le_dec nx j). destruct s. 2: lia. *)
-Abort.
 
-Lemma vt_approx_equiv1: forall n j vt,
-    istypeB n vt -> j < n ->
-    vtyp_equiv1 (vt_apprx j vt) (vt_approx (S j) vt).
-Proof.
-  intros. 
-  unfold vtyp_equiv1, vtyp_elem in *. split; intros.
-  - 
-    unfold vt_approx, vt_apprx, vt_wrap in *.
-    remember (le_dec (nx) j). destruct s. 2: destruct nx,H1. 
-    remember (lt_dec (nx) (S j)). destruct s. 2: lia.
-    eapply H. 2: eauto. lia.
-  - 
-    unfold vt_approx, vt_apprx, vt_wrap in *.
-    remember (lt_dec (nx) (S j)). destruct s. 2: destruct nx,H1. 
-    remember (le_dec (nx) j). destruct s. 2: lia.
-    eapply H. 2: eauto. lia.
-Qed.*)
-
-Import Eqdep.
-
-Lemma sttyw_eq1: forall n n1 n2 M1 M2 (vt: vtypen (S n)) (q0:n1=n2) (q: n-n1 = n-n2) vx,
-    M2 = (sttyn_aux_eq _ _ q M1) ->
-    vt n1 M1 vx = vt n2 M2 vx.
-Proof.
-  intros. subst n1. 
-  unfold sttyn_aux_eq, eq_rect in *.
-  assert (q = eq_refl). eapply UIP_refl.
-  rewrite H0 in H. subst M2. eauto. 
-Qed.
-
-
-Lemma vt_dec_eq: forall n1 l1 vt0,
-    vt_dec n1 n1 l1 vt0 = vt0.
-Proof.
-  intros. destruct n1. eauto. simpl. 
-  extensionality n2.
-  extensionality M.
-  extensionality v.
-  simpl in *.
-  symmetry. eapply sttyw_eq1. lia. eauto. 
-Qed.
-
-Lemma vt_approx_equiv2: forall n j vt,
-    istypeB n vt -> j < n ->
-    (vt_apprx j vt) = (vt_approx (S j) vt).
-Proof.
-  intros.
-  extensionality n1.
-  destruct n1.
-  - unfold istypeB in *.
-    eapply propositional_extensionality. 
-    unfold vt_apprx, vt_approx, vt_wrap in *.
-    remember (lt_dec 0 (S j)). destruct s. 2: lia. 
-    remember (le_dec 0 ( j)). destruct s. 2: lia.
-
-    edestruct H with (nx:=0). 2: { unfold vt_elem in *. split; eauto. } eauto. 
-
-  - extensionality nz.
-    extensionality M.
-    extensionality v.
-    eapply propositional_extensionality. 
-    unfold vt_apprx, vt_approx, vt_wrap.
-    remember (lt_dec (S n1) (S j)). destruct s. 
-    remember (le_dec (S n1) ( j)). destruct s. 2: lia.
-      assert (M = stty_pick(n1-nz) (stty_wrap (n1-nz) M)). {
-        unfold stty_pick, stty_wrap, vt_wrap.
-        rewrite map_map.
-        destruct (le_dec (n1 - nz) (n1 - nz)). 2: lia.
-        remember ((fun vt0 : vtypen (n1 - nz) => vt_dec (n1 - nz) (n1 - nz) l1 vt0)) as f.
-        assert (f = fun vt => vt).
-        extensionality vt0.
-        subst f. eapply vt_dec_eq. clear Heqf. subst f.
-        induction M. simpl. eauto. simpl. rewrite <-IHM; eauto. 
-      }
-    edestruct H with (nx:=(S n1)) (nx1:=nz).
-    2: {
-      rewrite H1. split; intros. 
-      eapply H3. eapply H4.
-      eapply H2. eapply H4. 
-    }
-    eauto.
-    remember (le_dec (S n1) ( j)). destruct s. lia.
-    split; eauto.
-    Unshelve. apply 0. apply []. apply (vbool true).
-Qed.
-
-
-
-(* ---- end of experiments ---- *)
-
-
-(*
 Lemma vte_xx1: forall nx j n vt1 M' vx,
   (forall nx0 : nat, vt_elem nx nx0 (vt_approx j vt1 nx) M' vx) ->
   j <= n -> 
   (forall nx0 : nat, vt_elem nx nx0 (vt_approx n vt1 nx) M' vx).
 Proof.
   intros.
-  unfold vt_elem in *. destruct nx. {
-    unfold vt_approx in *.
-    remember (lt_dec 0 j). destruct s.
-    remember (lt_dec 0 n). destruct s. 2: lia. eauto.
-    remember (lt_dec 0 n). destruct s. destruct H. apply 0. eauto.  
-  }
+  unfold vt_elem in *. destruct nx. eauto.
   unfold vt_approx.
   remember (lt_dec (S nx) n). destruct s. {
     specialize (H nx0). unfold vt_approx in H.
@@ -719,12 +596,7 @@ Lemma vte_xx2: forall nx j n vt1 vt2 M' vx,
   (forall nx0 : nat, vt_elem nx nx0 (vt_approx j vt2 nx) M' vx).
 Proof.
   intros.
-  unfold vt_elem in *. destruct nx. {
-    unfold vt_approx in *.
-    remember (lt_dec 0 j). destruct s.
-    remember (lt_dec 0 n). destruct s. 2: lia. eauto.
-    remember (lt_dec 0 n). destruct s. destruct H. apply 0. eauto.  
-  }
+  unfold vt_elem in *. destruct nx. eauto.
   unfold vt_approx.
   remember (lt_dec (S nx) j). destruct s. {
     specialize (H0 nx0). unfold vt_approx in H0.
@@ -733,39 +605,51 @@ Proof.
     specialize (H nx). unfold vt_approx in H.
     remember (lt_dec (S nx) j). destruct s. lia. eauto.
   }
-Qed.*)
+Qed.
 
 
 Lemma vtyp_equiv_dec: forall n j (vt1 vt2: vtype),
   vtyp_equiv n vt1 vt2 -> j <= n ->
   vtyp_equiv j (vt1) (vt2).
 Proof.
-  intros. unfold vtyp_equiv in *.
-  intros. unfold vt_approx, vtyp_elem in *.
-  extensionality n1.
-  remember (lt_dec n1 j). destruct s. 2: eauto. 
-  remember (lt_dec n1 n). destruct s. 2: lia.
-  remember ((fun n1 : nat => if lt_dec n1 n then vt1 n1 else vtnone n1)) as f1.
-  remember ((fun n1 : nat => if lt_dec n1 n then vt2 n1 else vtnone n1)) as f2.
-  remember (f1 n1) as vf1.
-  remember (f2 n1) as vf2.
-  assert (vf1 = vf2). congruence. subst f1 f2. 
-  remember (lt_dec n1 n). destruct s. 2: lia.
-  congruence.
+  intros. unfold vtyp_equiv, vtyp_equiv0 in *.
+  intros. unfold vtyp_elem in *.
+  intros. specialize (H (nx) M' vx).
+  destruct H. split. {
+    clear H1.
+    intros J1. replace (n-(nx+n-j)) with (j-nx) in *. 2: lia.
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx n vt1 nx) M' vx)) as N1. {
+      eapply vte_xx1. eauto. eauto. }    
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx n vt2 nx) M' vx)) as N2. {
+      eapply H. eapply N1. }
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx j vt2 nx) M' vx)) as J2. {
+      eapply vte_xx2. eauto. eauto. eauto. }
+    eapply J2.
+  }{
+    clear H.
+    intros J2. replace (n-(nx+n-j)) with (j-nx) in *. 2: lia.
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx n vt2 nx) M' vx)) as N2. {
+      eapply vte_xx1. eauto. eauto. }
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx n vt1 nx) M' vx)) as N1. {
+      eapply H1. eapply N2. }
+    assert ((forall nx0 : nat, vt_elem nx nx0 (vt_approx j vt1 nx) M' vx)) as J1. {
+      eapply vte_xx2. eauto. eauto. eauto. }
+    eapply J1. 
+  }
 Qed.
 
   
 Lemma vtyp_equiv_refl: forall n (vt1: vtype),
   vtyp_equiv n vt1 vt1.
 Proof.
-  intros. intuition. 
+  intros. intros ? ? ?. split; eauto. 
 Qed.
 
 Lemma vtyp_equiv_symm: forall n (vt1 vt2: vtype),
   vtyp_equiv n vt1 vt2 -> 
   vtyp_equiv n vt2 vt1.
 Proof.
-  intros. intuition. 
+  intros. intros ? ? ?. split; eapply H. 
 Qed.
 
 Lemma vtyp_equiv_trans: forall n (vt1 vt2 vt3: vtype),
@@ -773,31 +657,37 @@ Lemma vtyp_equiv_trans: forall n (vt1 vt2 vt3: vtype),
   vtyp_equiv n vt2 vt3 ->
   vtyp_equiv n vt1 vt3.
 Proof.
-  intros. unfold vtyp_equiv in *. congruence. 
+  intros. intros ? ? ?. split; intros.
+  eapply H0. eapply H. eapply H1. 
+  eapply H. eapply H0. eapply H1. 
 Qed.
 
 Lemma vtyp_equiv_approx': forall n n2 vt,
   n <= n2 ->
   vtyp_equiv n vt (vt_approx n2 vt).
 Proof.
-  intros. unfold vtyp_equiv in *.
-  unfold vt_approx.
-  extensionality n1. 
-  destruct (lt_dec n1 n). 2: eauto. 
-  destruct (lt_dec n1 n2). 2: lia. eauto. 
+  intros. unfold vtyp_equiv, vtyp_equiv0 in *.
+  intros. unfold vtyp_elem in *.
+  split; intros. {
+    unfold vt_elem, vt_approx in *.
+    destruct nx. eauto.
+    remember (lt_dec (S nx) n). destruct s. 2: eauto.
+    remember (lt_dec (S nx) n2). destruct s. 2: lia.
+    eauto.
+  } {
+    unfold vt_elem, vt_approx in *.
+    destruct nx. eauto.
+    remember (lt_dec (S nx) n). destruct s. 2: eauto.
+    remember (lt_dec (S nx) n2). destruct s. 2: lia.
+    eauto.
+  } 
 Qed.
-
 
 Lemma vtyp_equiv_approx: forall n vt,
   vtyp_equiv n vt (vt_approx n vt).
 Proof.
-  intros. unfold vtyp_equiv in *.
-  unfold vt_approx.
-  extensionality n1. 
-  destruct (lt_dec n1 n). 2: eauto. eauto. 
+  intros. eapply vtyp_equiv_approx'. eauto. 
 Qed.
-
-
 
 Lemma vtyp_equiv_apprx: forall j n nx0 vt1 vt2,
     istypeB (S n) vt1 ->
@@ -806,25 +696,26 @@ Lemma vtyp_equiv_apprx: forall j n nx0 vt1 vt2,
     S j <= S n ->
     vtyp_equiv (S j - nx0) (vt_apprx (n - nx0) vt1) (vt_apprx (j - nx0) vt2).
 Proof.
-  intros. 
+  intros. intros ? ? ?.
 
-  unfold vtyp_equiv, vtyp_elem, vt_elem in *.
-  erewrite (vt_approx_equiv2). 2: eauto. 2: lia.
-  erewrite (vt_approx_equiv2). 2: eauto. 2: lia. 
-
-  remember (vt_approx (S j) vt1) as vf1.
-  remember (vt_approx (S j) vt2) as vf2.
-  
-  unfold vt_approx, vt_apprx, vt_wrap in *.
-  extensionality nx.
-  assert (vf1 nx = vf2 nx). congruence. subst. 
-  remember (lt_dec (nx) (S j - nx0)). destruct s. 2: eauto. 
-  remember (lt_dec (nx) (S (n - nx0))). destruct s. 2: lia.
-  remember (lt_dec (nx) (S (j - nx0))). destruct s. 2: lia.
-  remember (lt_dec (nx) (S j)). destruct s. 2: lia.
-  eauto. 
+  unfold vtyp_equiv, vtyp_equiv0, vtyp_elem, vt_elem in *.
+  destruct (H1 nx M' vx) as (VV1 & VV2). clear H1.
+  destruct nx. intuition. split.
+  - intros HV nx1. 
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto. 
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia.
+    remember (le_dec (S nx) (n - nx0)). destruct s. 2: lia.
+    remember (lt_dec (S nx) (S j)). destruct s. 2: lia.
+    eapply H0. lia. eapply VV1. intros. eapply H. 2: eapply HV. lia.     
+  - intros HV nx1. 
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto. 
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia.
+    remember (le_dec (S nx) (n - nx0)). destruct s. 2: lia.
+    remember (lt_dec (S nx) (S j)). destruct s. 2: lia.
+    eapply H. lia. eapply VV2. intros. eapply H0. 2: eapply HV. lia.
 Qed.
-
 
 
 Lemma vte_xx3: forall n n1 vt M v,
@@ -833,20 +724,14 @@ Lemma vte_xx3: forall n n1 vt M v,
     (forall j : nat, j < n1 -> vtyp_elem j (vt_approx n1 vt) (stty_approx j M) v).
 Proof.
   intros. unfold vtyp_elem in *. 
-  intros. unfold vt_elem in *.
-  destruct j.
-
-  specialize (H 0). simpl in H.
-  unfold vt_approx in *.
-  destruct (lt_dec 0 n1). 2: lia.
-  destruct (lt_dec 0 n). 2: lia. eauto. 
-  
+  intros. unfold vt_elem in *. destruct j. eauto.
   unfold vt_approx in *.
   remember (lt_dec (S j) n1). destruct s. 2: lia.
   specialize (H (S j)).
   remember (lt_dec (S j) n). destruct s. 2: lia.
   eapply H. eauto. 
 Qed.
+
 
 
 
@@ -859,7 +744,7 @@ Proof.
   intros. 
   split. 2: split. eauto. eauto.
   intros. exists vt. split. eauto.
-  intuition. 
+  intros ? ? ?. intuition. 
 Qed.
 
 Lemma stchain_refl': forall n n1 M,
@@ -869,7 +754,7 @@ Proof.
   intros. 
   split. 2: split. lia. eauto. 
   intros. exists vt. split. eauto.
-  intuition.
+  intros ? ? ?. intuition.
 Qed.
 
 Lemma stchain_extend': forall n n1 vt M,
@@ -879,7 +764,7 @@ Proof.
   intros. 
   split. 2: split. eauto. simpl. lia. 
   intros. exists vt0. split. eapply indexr_extend1 in H0. eapply H0. 
-  intuition.
+  intros ? ? ?. intuition.
 Qed.
 
 
@@ -1057,7 +942,7 @@ Proof.
   intros. intros ? ? ? ? ? ? ? ? ? ?.
   unfold vtyp_elem, vt_elem in *.
   specialize (H2 nx).
-  destruct j. simpl. eauto. 
+  destruct j. eauto.
   destruct n. destruct H1. lia.
   eapply valt_step. 2: eauto. eauto.
   eapply stchain_apprx. eauto. eauto. eauto. 
@@ -1068,10 +953,7 @@ Lemma istb_valt: forall nu T,
 Proof.
   intros. intros ? ? ? ? ? ? ?. 
   unfold vt_wrap1, vt_dec in *.
-  destruct nx. simpl. destruct n. split; eauto. split; eauto. 
-
-  unfold vt_elem. destruct n. 
-  destruct (aux_lt1 nx l1).
+    destruct n. destruct (aux_lt1 nx l1).
 
     remember ((stty_pick (nx - nx1) M')) as s1.
     remember ((sttyn_aux_eq (nx - nx1) (n - (n - nx + nx1)) (aux_lt2 n nx nx1 l1) s1)) as s2.
@@ -1103,9 +985,15 @@ Proof.
 
   unfold vtyp_elem in *.  
   intros. 
-  unfold vt_approx in *.
-  destruct (lt_dec n0 n). 2: { destruct n0,H1; eauto. }
-  destruct (lt_dec j n). 2: lia. eauto.
+  unfold vt_elem, vt_approx in *.
+  destruct j. eauto.
+  remember (lt_dec (S j) n). destruct s. 
+  eapply H2. intros. destruct n0. eauto.
+  remember (lt_dec (S n0) n). destruct s.
+  eapply H1.
+  destruct H1. eauto. 
+  remember (lt_dec n0 n). destruct s. lia.
+  destruct n0. lia. destruct H1. eauto.
   eauto. eauto. 
 Qed.
 
@@ -1119,12 +1007,12 @@ Proof.
   intros. intros ? ? ? ? ? ? ?. split; intros.
   - (* unfold istypeB in H. *)
     unfold vt_approx in *. 
-    remember (lt_dec (nx) n). destruct s. 2: lia. 
+    remember (lt_dec (S nx) n). destruct s. 2: inversion H2.
     remember (lt_dec n0 n). destruct s. 2: lia. 
-    eapply H in H2. eauto. lia.
+    eapply H in H2. eauto. lia. 
   - unfold vt_approx in *. 
     remember (lt_dec n0 n). destruct s. 2: lia.
-    remember (lt_dec (nx) n). destruct s. 2: lia.
+    remember (lt_dec (S nx) n). destruct s. 2: lia.
     eapply H. 2: eauto. lia. 
 Qed.
 
@@ -1167,9 +1055,10 @@ Proof.
 
   eapply (H1 j). 4: { 
   unfold vtyp_elem in *. intros. 
-  (* unfold vt_elem in *. *)
+  unfold vt_elem in *. 
   unfold vt_approx in *.
-  remember (lt_dec (j) (S n1)). destruct s. 2: lia.
+  destruct j. eauto.
+  remember (lt_dec (S j) (S n1)). destruct s. 2: lia.
   eapply H. }
 
   eapply isstb_approx. eauto. lia.
@@ -1290,20 +1179,31 @@ Lemma vte_aux_ref: forall j n2 nx0 vt,
     S j < n2 ->
     vtyp_equiv (S j - nx0) (vt_approx n2 vt) (vt_apprx (j - nx0) (vt_approx (S j) (vt_approx n2 vt))).
 Proof.
-  intros. 
-  unfold vtyp_equiv.
-  erewrite vt_approx_equiv2. 2: eapply istb_approx. 2: eapply istb_approx. 2: eauto.
-  2: lia. 2: lia. 2: lia. 
+  intros. intros ? ? ?.
 
-  extensionality n1.
-  unfold vt_approx.
-  destruct (lt_dec n1 (S j - nx0)). 2: eauto. 
-  destruct (lt_dec n1 n2). 2: lia.
-  destruct (lt_dec n1 (S (j - nx0))). 2: lia.
-  destruct (lt_dec n1 (S j)). 2: lia.
-  eauto. 
+  unfold vtyp_elem, vt_elem.
+  destruct nx. intuition. split.
+  - intros. specialize (H1 nx1).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto. 
+    remember (lt_dec (S nx) n2). destruct s. 2: lia. 
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia. 
+    remember (lt_dec (j - nx0) (S j)). destruct s. 2: lia.
+    remember (lt_dec (j - nx0) n2). destruct s. 2: lia.
+
+    remember (j-nx0). 
+    
+    eapply H. 2: eauto. lia. 
+  - intros. specialize (H1 nx1).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto. 
+    remember (lt_dec (S nx) n2). destruct s. 2: lia. 
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia. 
+    remember (lt_dec (j - nx0) (S j)). destruct s. 2: lia.
+    remember (lt_dec (j - nx0) n2). destruct s. 2: lia.
+    eapply H. 2: eauto. lia. 
 Qed.
-      
+    
 Lemma stchain_aux_ref: forall n2 j nx0 M' vt,
     isstoretypeB n2 M' ->
     S j < n2 ->
@@ -1335,18 +1235,25 @@ Lemma vte_aux_get: forall nx1 vt1,
     istypeB (S nx1) vt1 ->
     
     vtyp_equiv (S nx1)
-      (vt_apprx (nx1 - 0) (vt_approx (S nx1) vt1))
+      (vt_wrap (nx1 - 0) (vt_approx (S nx1) vt1 (nx1 - 0)))
       (vt_approx (S nx1) vt1).
 Proof.
-  intros.
-  unfold vtyp_equiv.
-  erewrite vt_approx_equiv2. 2: eapply istb_approx. 2: eauto.
-  2: lia. 2: lia.
-  extensionality n1.
-  unfold vt_approx.
-  destruct (lt_dec n1 (S nx1)). 2: eauto. 
-  destruct (lt_dec n1 (S (nx1 - 0))). 2: lia.
-  eauto.
+  intros. intros ? ? ?.
+
+  unfold vtyp_elem, vt_elem.
+  destruct nx. intuition. split.
+  - intros. specialize (H0 nx0).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S nx1)). destruct s. 2: eauto.
+    remember (le_dec (S nx) (nx1-0)). destruct s. 2: lia.
+    remember (lt_dec (nx1-0) (S nx1)). destruct s. 2: lia.
+    eapply H. 2: eauto. lia. 
+  - intros. specialize (H0 nx0).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S nx1)). destruct s. 2: eauto.
+    remember (le_dec (S nx) (nx1-0)). destruct s. 2: lia.
+    remember (lt_dec (nx1-0) (S nx1)). destruct s. 2: lia.
+    eapply H. 2: eauto. lia. 
 Qed.
 
 Lemma stchain_aux_get: forall nx1 M',
@@ -1378,18 +1285,24 @@ Lemma vte_aux_put: forall j nx0 ny1 vt,
     j < ny1 ->
     vtyp_equiv (S j - nx0)
       vt
-      (vt_apprx (j - nx0) (vt_approx (S j) vt)).
+      (vt_wrap (j - nx0) (vt_approx (S j) vt (j - nx0))).
 Proof.
-  intros.
-  unfold vtyp_equiv.
-  erewrite vt_approx_equiv2. 2: eapply istb_approx. 2: eauto.
-  2: lia. 2: lia. 
-  extensionality n1.
-  unfold vt_approx.
-  destruct (lt_dec n1 (S j - nx0)). 2: eauto. 
-  destruct (lt_dec n1 (S (j - nx0))). 2: lia.
-  destruct (lt_dec n1 (S j)). 2: lia.
-  eauto.
+  intros. intros ? ? ?.
+
+  unfold vtyp_elem, vt_elem.
+  destruct nx. intuition. split.
+  - intros. specialize (H1 nx1).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto.
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia.
+    remember (lt_dec (j-nx0) (S j)). destruct s. 2: lia.
+    eapply H. 2: eauto. lia. 
+  - intros. specialize (H1 nx1).
+    unfold vt_approx, vt_apprx, vt_wrap in *.
+    remember (lt_dec (S nx) (S j - nx0)). destruct s. 2: eauto.
+    remember (le_dec (S nx) (j - nx0)). destruct s. 2: lia.
+    remember (lt_dec (j-nx0) (S j)). destruct s. 2: lia.
+    eapply H. 2: eauto. lia. 
 Qed.
 
 Lemma stchain_aux_put: forall ny1 nx0 j M2,
@@ -1502,10 +1415,10 @@ Proof.
     subst vt vta. eapply ista_approx. eapply ista_valt.
     subst vt vta. eapply istb_approx. eapply istb_valt. eauto. 
 
-    intros. unfold vtyp_elem, vt_approx. 
+    intros. unfold vtyp_elem, vt_elem, vt_approx. 
 
-    intros. 
-    remember (lt_dec j n2). destruct s. 2: lia.
+    intros. destruct j. eauto.
+    remember (lt_dec (Datatypes.S j) n2). destruct s. 2: lia.
 
     subst vta vt MA. 
 
@@ -1515,7 +1428,6 @@ Proof.
 
     rewrite <-Heqs. 
 
-    destruct j. eauto. 
     eapply valt_step. 2: eauto. eauto.
     eapply stchain_aux_ref. eapply storet_isstb. eapply storet_step'. eauto. lia. eauto. 
     
@@ -1561,22 +1473,19 @@ Proof.
     replace ((Datatypes.S n - Datatypes.S nx)) with nx1 in *.
     rewrite <-H1 in *. 
 
-    unfold vtyp_equiv in H. rewrite H in AB. 
-
-(*
-    specialize (H (nx1) (stty_approx nx1 M') vx).
+    unfold vtyp_equiv in H. specialize (H (nx1) (stty_approx nx1 M') vx).
     destruct H as (HH1 & HH2). clear HH2.
-*)
+
     assert (nx1 < Datatypes.S nx1). lia. 
-    eapply AB in H2. (* eapply HH1 in H. *)
+    eapply AB in H. eapply HH1 in H. 
     
-    unfold vtyp_elem, vt_elem, vt_approx, vt_wrap1 in H2.
+    unfold vtyp_elem, vt_elem, vt_approx, vt_wrap1 in H.
     destruct nx1. eapply valt_zero.
 
     remember (lt_dec (nx1) (Datatypes.S nx1)). destruct s. 2: lia.
     remember (lt_dec (Datatypes.S nx1) (Datatypes.S (Datatypes.S nx1))). destruct s. 2: lia.
 
-    specialize (H2 0). 
+    specialize (H 0). 
     replace (Datatypes.S nx1 - 0) with (Datatypes.S nx1) in *. 2: lia.
     
     eapply valt_step. 2: eauto. eauto.
@@ -1636,13 +1545,11 @@ Proof.
       exists vy. rewrite update_indexr_hit; eauto. 2: lia. 
       split. eauto. 
 
-      unfold vtyp_equiv in *. 
-      intros. rewrite <-EQ2. eapply vtyp_equiv_dec in EQ. rewrite EQ. 2: lia. 
-      intros ?. unfold vt_approx. 
-      remember (lt_dec (j) (Datatypes.S ny1)). destruct s. 2: lia.
-      unfold vt_elem, vt_wrap1.
+      intros. eapply EQ2. eapply vtyp_equiv_dec. eapply EQ. lia.
+      intros ?. unfold vt_elem. destruct j. eauto.
+      unfold vt_approx, vt_wrap1.
+      remember (lt_dec (Datatypes.S j) (Datatypes.S ny1)). destruct s. 2: lia.
 
-      destruct j. eauto. 
       eapply valt_step. 2: eauto. eauto.
       eapply stchain_aux_put. eapply storet_isstb. split. eauto. eauto. lia. 
     + eapply B2 in H0 as IX5.

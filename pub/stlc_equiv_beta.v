@@ -4,7 +4,7 @@
 
 STLC, binary logical relation, contextual equivalence.
 
-From ../LR_equiv/stlc.v
+Includes a proof of beta equivalence.
 
 *)
 

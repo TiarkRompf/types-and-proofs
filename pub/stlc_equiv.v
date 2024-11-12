@@ -4,8 +4,6 @@
 
 STLC, binary logical relation, contextual equivalence.
 
-From ../LR_equiv/stlc.v
-
 *)
 
 Require Export Arith.EqNat.

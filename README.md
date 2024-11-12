@@ -22,7 +22,14 @@ STLC variations:
 
 - Stlc with step-indexed LR: [stlc_indexed.v](pub/stlc_indexed.v)
 
+- Stlc with step-indexed LR and recursive functions: [stlc_rec_indexed.v](pub/stlc_rec_indexed.v)
+
 - Stlc binary LR: [stlc_equiv.v](pub/stlc_equiv.v)
+
+- Stlc binary LR with proof of beta equivalence: [stlc_equiv_beta.v](pub/stlc_equiv_beta.v)
+
+- Stlc with subtyping: [stlc_stp.v](pub/stlc_stp.v)
+
 
 
 STLC with boolean refs:

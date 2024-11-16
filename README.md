@@ -54,6 +54,12 @@ STLC with effects:
   	Val_type has a 'useable' flag encoding if a value may be
   	used in an effectful way in the future.
 
+- Stlc with boolean refs, binary LR and boolean yes/no effects: [stlc_refb_effb_equiv_beta.v](pub/stlc_refb_effb_equiv_beta.v)
+
+	Includes a proof of beta reduction for pure argument expressions.
+	This version does not use a 'useable' flag on values, instead it
+	splits exp_type into pure and impure versions.
+
 
 STLC with parametric types (System F):
 

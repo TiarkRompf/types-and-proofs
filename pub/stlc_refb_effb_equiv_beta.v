@@ -256,51 +256,53 @@ Fixpoint val_type M v1 v2 T : Prop :=
 
 
 
-
-Definition exp_type_pure_xxx M H1 H2 t1 t2 T :=
-  exists v1 v2,
-    forall S1 S2, exists S1' S2', (* goal: <-- supoort allocation *)
-      tevaln S1 H1 t1 S1' v1 /\
-      tevaln S2 H2 t2 S2' v2 /\
-      val_type M v1 v2 T.
-
-
 Definition exp_type_pure M H1 H2 t1 t2 T :=
   exists v1 v2 SD1 SD2,
-    (forall S1, tevaln S1 H1 t1 (SD1++S1) v1) /\ (* xx: support store extension *)
+    (forall S1, tevaln S1 H1 t1 (SD1++S1) v1) /\
     (forall S2, tevaln S2 H2 t2 (SD2++S2) v2) /\
-    val_type M v1 v2 T.
+    val_type M v1 v2 T. (* alternative: st_pad M *)
 
 
 Definition exp_type1 S1 S2 M H1 H2 t1 t2 S1' S2' M' T :=
     exists v1 v2,
       st_chain M M' /\
       stty_wellformed M' /\
-        tevaln S1 H1 t1 S1' v1 /\
-        tevaln S2 H2 t2 S2' v2 /\
-        store_type S1' S2' M' /\
-        val_type M' v1 v2 T.
+      tevaln S1 H1 t1 S1' v1 /\
+      tevaln S2 H2 t2 S2' v2 /\
+      store_type S1' S2' M' /\
+      val_type M' v1 v2 T.
 
 Definition exp_type S1 S2 M H1 H2 t1 t2 T :=
   exists S1' S2' M',
     exp_type1 S1 S2 M H1 H2 t1 t2 S1' S2' M' T.
 
+Definition exp_type_impure M H1 H2 t1 t2 T :=
+  stty_wellformed M ->
+  forall S1 S2,
+    store_type S1 S2 M ->
+    exp_type S1 S2 M H1 H2 t1 t2 T.
+
+Definition exp_type_eff M H1 H2 t1 t2 T e :=
+    exp_type_impure M H1 H2 t1 t2 T /\
+    (e = false -> exp_type_pure M H1 H2 t1 t2 T).
+
+
+
 Definition env_type M (H1 H2: venv) (G: tenv) :=
   length H1 = length G /\
   length H2 = length G /\
-    forall x T,
-      indexr x G = Some T ->
-      exists v1 v2,
-        indexr x H1 = Some v1 /\
-        indexr x H2 = Some v2 /\
-        val_type M v1 v2 T.
+  forall x T,
+    indexr x G = Some T ->
+    exists v1 v2,
+      indexr x H1 = Some v1 /\
+      indexr x H2 = Some v2 /\
+      val_type M v1 v2 T.
 
 
 Definition sem_type_pure G t1 t2 T :=
   forall M H1 H2,
     env_type M H1 H2 G ->
     exp_type_pure M H1 H2 t1 t2 T.
-
 
 Definition sem_type_impure G t1 t2 T :=
   forall M H1 H2,
@@ -309,19 +311,6 @@ Definition sem_type_impure G t1 t2 T :=
     forall S1 S2,
       store_type S1 S2 M ->
       exp_type S1 S2 M H1 H2 t1 t2 T.
-
-
-Definition exp_type_impure M H1 H2 t1 t2 T :=
-  stty_wellformed M ->
-  forall S1 S2,
-    store_type S1 S2 M ->
-    exp_type S1 S2 M H1 H2 t1 t2 T.
-
-
-Definition exp_type_eff M H1 H2 t1 t2 T e :=
-    exp_type_impure M H1 H2 t1 t2 T /\
-    (e = false -> exp_type_pure M H1 H2 t1 t2 T).
-
 
 Definition sem_type_eff G t1 t2 T e :=
   forall M H1 H2,
@@ -501,8 +490,6 @@ Proof.
 Qed.
 
 
-
-
 Lemma storet_update: forall S1 S2 M l1 l2 vx1 vx2,
     stty_wellformed M ->
     store_type S1 S2 M ->
@@ -521,8 +508,6 @@ Proof.
     + subst l0 l3. eexists. rewrite update_indexr_hit, update_indexr_hit; intuition.
       eapply F1 in H0. rewrite L2. eapply H0.
       eapply F1 in H0. rewrite L1. eapply H0. 
-      (* edestruct H3 as (? & ? & ?). eauto. eauto. eapply indexr_var_some'. eauto.
-      edestruct H4 as (? & ? & ?). eauto. eapply indexr_var_some'. eauto. *)
     + subst l0. destruct H4. eapply F2; eauto.
     + subst l3. destruct H3. eapply F3; eauto.
     + rewrite update_indexr_miss, update_indexr_miss; eauto.
@@ -565,6 +550,7 @@ Lemma valt_store_extend: forall M M' vx1 vx2 T,
 Proof. 
   intros. eapply valt_store_extend'; eauto.
 Qed.
+
 
 (* ---------- LR compatibility lemmas  ---------- *)
 
@@ -806,18 +792,12 @@ Lemma exp_sub_fun_eff: forall S1 S2 M H1 H2 t1 t2 T1 T2 e,
     exp_type S1 S2 M H1 H2 t1 t2 (TFun T1 T2 e) ->
     exp_type S1 S2 M H1 H2 t1 t2 (TFun T1 T2 true).
 Proof.
-  intros. destruct H as (S1' & S2' & M' & v1 & v2 & ? & ? & ? & ? & ? & ?).
-  exists S1', S2', M', v1, v2. split. 2: split. 3: split. 4: split. 5: split.
-  - eauto.
-  - eauto.
-  - eauto.
-  - eauto.
-  - eauto.
-  - destruct v1, v2, e; simpl; try contradiction; intuition. 
-    eapply exp_sub_eff; eauto. simpl in H6. eapply H6. eauto. eauto.
+  intros. destruct H as (S1' & S2' & M' & ?).
+  exists S1', S2', M'. eapply exp_sub_fun_eff1. eauto. 
 Qed.
 
 
+(* ---------- LR fundamental property  ---------- *)
 
 
 Theorem fundamental: forall G t T e,
@@ -873,11 +853,10 @@ Proof.
   - intros. inversion H. 
 Qed.
 
+(* NOTE: it would be possible (and perhaps useful) to extract
+   individual cases back out into sem_xxx lemmas. Then the
+   proof above could be shortened again to the following:
 
-                                                       
-(* ---------- LR fundamental property  ---------- *)
-
-(*
 Theorem fundamental: forall G t T e,
     has_type G t T e ->
     sem_type G t t e T.
@@ -1290,7 +1269,7 @@ Proof.
 Qed.
 
 (* NOTE: We need this form only for pure expressions, but it
-   should be provable also for impure ones. *)
+   would be provable also for impure ones. *)
 Lemma st_weaken1: forall t1 T1 G
   (W: has_type G t1 T1 false),
   forall M H1 H2 H2',

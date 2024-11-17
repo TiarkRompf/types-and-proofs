@@ -31,7 +31,6 @@ STLC variations:
 - Stlc with subtyping: [stlc_stp.v](pub/stlc_stp.v)
 
 
-
 STLC with boolean refs:
 
 - Stlc with boolean refs: [stlc_refb.v](pub/stlc_refb.v)
@@ -59,6 +58,11 @@ STLC with effects:
 	Includes a proof of beta reduction for pure argument expressions.
 	This version does not use a 'useable' flag on values, instead it
 	splits exp_type into pure and impure versions.
+
+- Stlc with non-termination tracked as effect: [stlc_rec_indexed_eff.v](pub/stlc_rec_indexed_eff.v)
+
+	Combined termination and soundness proof, combining
+	type-indexed and step-indexed LR. 
 
 
 STLC with parametric types (System F):

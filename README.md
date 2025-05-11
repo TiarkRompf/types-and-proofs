@@ -20,6 +20,8 @@ STLC variations:
 
 - Stlc in small-step, call-by-name: [stlc_smallstep.v](pub/stlc_smallstep.v)
 
+- Stlc normalization by evaluation: [stlc_nbe.v](pub/stlc_nbe.v)
+
 - Stlc with step-indexed LR: [stlc_indexed.v](pub/stlc_indexed.v)
 
 - Stlc with step-indexed LR and recursive functions: [stlc_rec_indexed.v](pub/stlc_rec_indexed.v)

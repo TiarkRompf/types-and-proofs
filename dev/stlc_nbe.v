@@ -160,28 +160,34 @@ Fixpoint val_type v T : Prop :=
   | vbool b, TBool =>  
       True
   | vabs H ty, TFun T1 T2 =>
-      forall vx,
+      forall vx tx',
         val_type vx T1 ->
-        exists vy,
+        treifyn vx tx' ->
+        exists vy ty',
           tevaln (vx::H) ty vy /\
-          val_type vy T2
+          val_type vy T2 /\
+          treifyn vy ty'
+  | vsym t, _ =>
+      True
   | _,_ =>
       False
   end.
 
 
 Definition exp_type H t T :=
-  exists v,
+  exists v t',
     tevaln H t v /\
-    val_type v T.
+    val_type v T /\
+    treifyn v t'.
 
 Definition env_type (H: venv) (G: tenv) :=
   length H = length G /\
     forall x T,
       indexr x G = Some T ->
-      exists v,
+      exists v t',
         indexr x H = Some v /\
-        val_type v T.
+        val_type v T /\
+        treifyn v t'.
 
 Definition sem_type G t T :=
   forall H,
@@ -209,9 +215,10 @@ Proof.
   intros. split. eauto. intros. inversion H. 
 Qed.
 
-Lemma envt_extend: forall E G v1 T1,
+Lemma envt_extend: forall E G v1 t1 T1,
     env_type E G ->
     val_type v1 T1 ->
+    treifyn v1 t1 ->
     env_type (v1::E) (T1::G).
 Proof.
   intros. 
@@ -219,10 +226,10 @@ Proof.
   destruct H. split. simpl. eauto.
   intros x T IX. bdestruct (x =? length G).
   - subst x. rewrite indexr_head in IX. inversion IX. subst T1.
-    exists v1. rewrite <- H. rewrite indexr_head. eauto.
+    exists v1, t1. rewrite <- H. rewrite indexr_head. eauto.
   - rewrite indexr_skip in IX; eauto.
-    eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
-    exists v2. rewrite indexr_skip; eauto. lia.
+    eapply WFE in IX as IX. destruct IX as (v2 & t2 & ? & ?).
+    exists v2, t2. rewrite indexr_skip; eauto. lia.
 Qed.
 
 
@@ -232,18 +239,20 @@ Lemma sem_true: forall G,
     sem_type G ttrue TBool.
 Proof.
   intros. intros E WFE. 
-  exists (vbool true). split.
+  exists (vbool true), ttrue. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. eauto.
-  - simpl. eauto. 
+  - simpl. eauto.
+  - exists 0. intros. destruct n. lia. simpl. eauto.
 Qed.
 
 Lemma sem_false: forall G,
     sem_type G tfalse TBool.
 Proof.
   intros. intros E WFE. 
-  exists (vbool false). split.
+  exists (vbool false), tfalse. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. eauto.
-  - simpl. eauto. 
+  - simpl. eauto.
+  - exists 0. intros. destruct n. lia. simpl. eauto.
 Qed.
 
 Lemma sem_var: forall G x T,
@@ -251,10 +260,11 @@ Lemma sem_var: forall G x T,
     sem_type G (tvar x) T.
 Proof.
   intros. intros E WFE.
-  eapply WFE in H as IX. destruct IX as (v & IX & VX).
-  exists v. split. 
+  eapply WFE in H as IX. destruct IX as (v & t & IX & VX & TX).
+  exists v, t. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. rewrite IX. eauto.
-  - eauto. 
+  - eauto.
+  - eauto.
 Qed.
 
 Lemma sem_app: forall G f t T1 T2,
@@ -263,18 +273,31 @@ Lemma sem_app: forall G f t T1 T2,
     sem_type G (tapp f t) T2.
 Proof.
   intros ? ? ? ? ? HF HX. intros E WFE.
-  destruct (HF E WFE) as (vf & STF & VF).
-  destruct (HX E WFE) as (vx & STX & VX).
-  destruct vf; simpl in VF; intuition.
-  edestruct VF as (vy & STY & VY). eauto. 
-  exists vy. split.
-  - destruct STF as (n1 & STF).
-    destruct STX as (n2 & STX).
-    destruct STY as (n3 & STY).
-    exists (1+n1+n2+n3). intros. destruct n. lia.
-    simpl. rewrite STF, STX, STY. 2,3,4: lia.
-    eauto.
-  - eauto.
+  destruct (HF E WFE) as (vf & tf' & STF & VF & TF).
+  destruct (HX E WFE) as (vx & tx' & STX & VX & TX).
+  destruct vf; simpl in VF; intuition. {
+    edestruct VF as (vy & ty' & STY & VY & TY). eauto. eauto. 
+    exists vy, ty'. split. 2: split. 
+    - destruct STF as (n1 & STF).
+      destruct STX as (n2 & STX).
+      destruct STY as (n3 & STY).
+      exists (1+n1+n2+n3). intros. destruct n. lia.
+      simpl. rewrite STF, STX, STY. 2,3,4: lia.
+      eauto.
+    - eauto.
+    - eauto.
+  } {
+    eexists _,_. split. 2: split.
+    - destruct STF as (n1 & STF).
+      destruct STX as (n2 & STX).
+      destruct TX as (n3 & TX).
+      exists (1+n1+n2+n3). intros. destruct n. lia.
+      simpl. rewrite STF, STX, TX. 2,3,4: lia.
+      eauto.
+    - destruct T2; eauto.
+    - exists 0. intros. destruct n. lia.
+      simpl. eauto. 
+  }
 Qed.
 
 Lemma sem_abs: forall G t T1 T2,
@@ -283,9 +306,19 @@ Lemma sem_abs: forall G t T1 T2,
 Proof.
   intros ? ? ? ? HY. intros E WFE.
   assert (length E = length G) as L. eapply WFE.
-  exists (vabs E t). split.
+  edestruct HY as (v & t' & STY & VY & TY). {
+    eapply envt_extend with (v1:=vsym (tvar (length E))).
+    eauto. destruct T1; simpl; eauto. 
+    exists 0. intros. destruct n. lia. simpl. eauto.
+  }
+  exists (vabs E t), (tabs t'). split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. intros. eapply HY. eapply envt_extend; eauto.
+  - destruct STY as (n1 & STY).
+    destruct TY as (n2 & TY).
+    exists (1+n1+n2). intros. destruct n. lia.
+    simpl. rewrite STY, TY. 2,3: lia.
+    eauto. 
 Qed.
 
 
@@ -310,9 +343,19 @@ Corollary safety: forall t T,
   exp_type [] t T.
 Proof. 
   intros. eapply fundamental in H as ST; eauto.
-  destruct (ST []) as (v & ? & ?).
+  destruct (ST []) as (v & t' & ? & ? & ?).
   eapply envt_empty.
-  exists v. intuition.
+  exists v, t'. intuition.
+Qed.
+
+Corollary normalization: forall t T,
+  has_type [] t T ->
+  exists t', tnormn [] t t'.
+Proof. 
+  intros. eapply fundamental in H as ST; eauto.
+  destruct (ST []) as (v & t' & ? & ? & ?).
+  eapply envt_empty.
+  exists t'. exists v. intuition. 
 Qed.
 
 End STLC.

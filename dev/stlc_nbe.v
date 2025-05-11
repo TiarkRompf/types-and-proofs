@@ -2,9 +2,9 @@
 
 (*
 
-An LR-based termination and semantic soundness proof for STLC.
+An LR-based normalization and semantic soundness proof for STLC.
 
-Normalization by evaluation.
+Normalization by evaluation, based on standard cbv semantics.
 
 *)
 
@@ -73,6 +73,25 @@ Inductive has_type : tenv -> tm -> ty -> Prop :=
     has_type (T1::env) t T2 ->
     has_type env (tabs t) (TFun T1 T2)
 .
+
+
+Inductive normal : tm -> Prop :=
+| nf_true:
+    normal ttrue
+| nf_false:
+    normal tfalse
+| nf_var: forall x,
+    normal (tvar x)
+| nf_app: forall f t,
+    normal f ->
+    normal t ->
+    (forall t', f <> tabs t') ->
+    normal (tapp f t)
+| nf_abs: forall t,
+    normal t ->
+    normal (tabs t)
+.
+
 
 (* ---------- operational semantics ---------- *)
 
@@ -163,12 +182,14 @@ Fixpoint val_type v T : Prop :=
       forall vx tx',
         val_type vx T1 ->
         treifyn vx tx' ->
+        normal tx' ->
         exists vy ty',
           tevaln (vx::H) ty vy /\
           val_type vy T2 /\
-          treifyn vy ty'
+          treifyn vy ty' /\
+          normal ty'
   | vsym t, _ =>
-      True
+      normal t /\ (forall t', t <> tabs t')
   | _,_ =>
       False
   end.
@@ -178,7 +199,8 @@ Definition exp_type H t T :=
   exists v t',
     tevaln H t v /\
     val_type v T /\
-    treifyn v t'.
+    treifyn v t' /\
+    normal t'.
 
 Definition env_type (H: venv) (G: tenv) :=
   length H = length G /\
@@ -187,7 +209,8 @@ Definition env_type (H: venv) (G: tenv) :=
       exists v t',
         indexr x H = Some v /\
         val_type v T /\
-        treifyn v t'.
+        treifyn v t' /\
+        normal t'.
 
 Definition sem_type G t T :=
   forall H,
@@ -200,6 +223,7 @@ Definition sem_type G t T :=
 #[export] Hint Constructors vl: core.
 
 #[export] Hint Constructors has_type: core.
+#[export] Hint Constructors normal: core.
 
 #[export] Hint Constructors option: core.
 #[export] Hint Constructors list: core.
@@ -219,6 +243,7 @@ Lemma envt_extend: forall E G v1 t1 T1,
     env_type E G ->
     val_type v1 T1 ->
     treifyn v1 t1 ->
+    normal t1 ->
     env_type (v1::E) (T1::G).
 Proof.
   intros. 
@@ -228,7 +253,7 @@ Proof.
   - subst x. rewrite indexr_head in IX. inversion IX. subst T1.
     exists v1, t1. rewrite <- H. rewrite indexr_head. eauto.
   - rewrite indexr_skip in IX; eauto.
-    eapply WFE in IX as IX. destruct IX as (v2 & t2 & ? & ?).
+    eapply WFE in IX as IX. destruct IX as (v2 & t2 & ? & ? & ? & ?).
     exists v2, t2. rewrite indexr_skip; eauto. lia.
 Qed.
 
@@ -239,20 +264,22 @@ Lemma sem_true: forall G,
     sem_type G ttrue TBool.
 Proof.
   intros. intros E WFE. 
-  exists (vbool true), ttrue. split. 2: split. 
+  exists (vbool true), ttrue. split. 2: split. 3: split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. eauto.
   - exists 0. intros. destruct n. lia. simpl. eauto.
+  - eauto. 
 Qed.
 
 Lemma sem_false: forall G,
     sem_type G tfalse TBool.
 Proof.
   intros. intros E WFE. 
-  exists (vbool false), tfalse. split. 2: split. 
+  exists (vbool false), tfalse. split. 2: split. 3: split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. eauto.
   - exists 0. intros. destruct n. lia. simpl. eauto.
+  - eauto.
 Qed.
 
 Lemma sem_var: forall G x T,
@@ -260,9 +287,10 @@ Lemma sem_var: forall G x T,
     sem_type G (tvar x) T.
 Proof.
   intros. intros E WFE.
-  eapply WFE in H as IX. destruct IX as (v & t & IX & VX & TX).
-  exists v, t. split. 2: split. 
+  eapply WFE in H as IX. destruct IX as (v & t & IX & VX & TX & HTX).
+  exists v, t. split. 2: split. 3: split.
   - exists 0. intros. destruct n. lia. simpl. rewrite IX. eauto.
+  - eauto.
   - eauto.
   - eauto.
 Qed.
@@ -273,11 +301,11 @@ Lemma sem_app: forall G f t T1 T2,
     sem_type G (tapp f t) T2.
 Proof.
   intros ? ? ? ? ? HF HX. intros E WFE.
-  destruct (HF E WFE) as (vf & tf' & STF & VF & TF).
-  destruct (HX E WFE) as (vx & tx' & STX & VX & TX).
+  destruct (HF E WFE) as (vf & tf' & STF & VF & TF & HTF).
+  destruct (HX E WFE) as (vx & tx' & STX & VX & TX & HTX).
   destruct vf; simpl in VF; intuition. {
-    edestruct VF as (vy & ty' & STY & VY & TY). eauto. eauto. 
-    exists vy, ty'. split. 2: split. 
+    edestruct VF as (vy & ty' & STY & VY & TY & HTY). eauto. eauto. eauto.
+    exists vy, ty'. split. 2: split. 3: split. 
     - destruct STF as (n1 & STF).
       destruct STX as (n2 & STX).
       destruct STY as (n3 & STY).
@@ -286,17 +314,19 @@ Proof.
       eauto.
     - eauto.
     - eauto.
+    - eauto.
   } {
-    eexists _,_. split. 2: split.
+    eexists _,_. split. 2: split. 3: split.
     - destruct STF as (n1 & STF).
       destruct STX as (n2 & STX).
       destruct TX as (n3 & TX).
       exists (1+n1+n2+n3). intros. destruct n. lia.
       simpl. rewrite STF, STX, TX. 2,3,4: lia.
       eauto.
-    - destruct T2; eauto.
+    -  destruct T2; simpl; intuition; inversion H1. 
     - exists 0. intros. destruct n. lia.
-      simpl. eauto. 
+      simpl. eauto.
+    - eauto. 
   }
 Qed.
 
@@ -306,19 +336,21 @@ Lemma sem_abs: forall G t T1 T2,
 Proof.
   intros ? ? ? ? HY. intros E WFE.
   assert (length E = length G) as L. eapply WFE.
-  edestruct HY as (v & t' & STY & VY & TY). {
+  edestruct HY as (v & t' & STY & VY & TY & HTY). {
     eapply envt_extend with (v1:=vsym (tvar (length E))).
-    eauto. destruct T1; simpl; eauto. 
+    eauto. destruct T1; simpl; intuition; inversion H. 
     exists 0. intros. destruct n. lia. simpl. eauto.
+    eauto. 
   }
-  exists (vabs E t), (tabs t'). split. 2: split. 
+  exists (vabs E t), (tabs t'). split. 2: split. 3: split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. intros. eapply HY. eapply envt_extend; eauto.
   - destruct STY as (n1 & STY).
     destruct TY as (n2 & TY).
     exists (1+n1+n2). intros. destruct n. lia.
     simpl. rewrite STY, TY. 2,3: lia.
-    eauto. 
+    eauto.
+  - eauto. 
 Qed.
 
 
@@ -350,12 +382,13 @@ Qed.
 
 Corollary normalization: forall t T,
   has_type [] t T ->
-  exists t', tnormn [] t t'.
+  exists t',
+    tnormn [] t t' /\ normal t'.
 Proof. 
   intros. eapply fundamental in H as ST; eauto.
-  destruct (ST []) as (v & t' & ? & ? & ?).
+  destruct (ST []) as (v & t' & ? & ? & ? & ?).
   eapply envt_empty.
-  exists t'. exists v. intuition. 
+  exists t'. split. exists v. intuition. eauto.
 Qed.
 
 End STLC.

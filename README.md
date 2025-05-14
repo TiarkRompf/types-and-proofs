@@ -67,6 +67,11 @@ STLC with effects:
 	type-indexed and step-indexed LR. 
 
 
+STLC with type equivalence and normalization:
+
+- Stlc with type normalization [stlc_type_equiv.v](pub/stlc_type_equiv.v)
+
+
 STLC with parametric types (System F):
 
 - System F [stlc_tabs.v](pub/stlc_tabs.v)

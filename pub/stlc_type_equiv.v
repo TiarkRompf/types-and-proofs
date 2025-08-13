@@ -23,7 +23,7 @@ function application rule that uses type operators
 range of the function's type.
 
 The semantic interpretation of types, i.e., the
-logical relation definin semantically well-typed
+logical relation defining semantically well-typed
 values and terms only needs to be defined for types
 in formal form.
 

@@ -14,11 +14,6 @@ We include type operators, abstraction and application
 with a kinding system. The language corresponds to
 TAPL, Chapter 29.
 
-TODO:
-- add proof of beta equivalence of types
-- fundamental: subsume env_kind into sem_type
-- full Fw: TAll, ttapp, ttabs
-
 *)
 
 Require Import Coq.Lists.List.
@@ -132,7 +127,31 @@ Fixpoint teval(n: nat)(env: venv)(t: tm){struct n}: option (option vl) :=
 
 Definition tevaln env e v := exists nm, forall n, n > nm -> teval n env e = Some (Some v).
 
-(* ---------- substitution in types ---------- *)
+
+(* ---------- normalization (by evaluation) of types ---------- *)
+
+Inductive type_eval : tvenv -> ty -> ty_vl -> Prop :=
+| teval_bool: forall env,
+    type_eval env TBool TVBool
+| teval_tvar: forall env x VX,
+    indexr x env = Some VX ->
+    type_eval env (TVar x) VX
+| teval_fun: forall env T1 T2 V1 V2,
+    type_eval env T1 V1 ->
+    type_eval env T2 V2 ->
+    type_eval env (TFun T1 T2) (TVFun V1 V2)
+| teval_ttabs: forall env T2,
+    type_eval env (TTAbs T2) (TVAbs env T2)
+| teval_ttapp: forall env G TF T1 T2 V1 V2,
+    type_eval env TF (TVAbs G T2) ->
+    type_eval env T1 V1 ->
+    type_eval (V1 :: G) T2 V2 ->
+    type_eval env (TTApp TF T1) V2
+.
+
+
+
+(* ---------- substitution on types ---------- *)
 
 Fixpoint splice_ty (t: ty) (i: nat) (n:nat): ty := 
   match t with 
@@ -155,27 +174,6 @@ end.
 (* Note: we don't have locally nameless here, just regular DeBruijn levels. This 
    means substitution under binders (i.e. tabs) needs to shift the term by 1 *)
 
-
-(* ---------- type normalization rules ---------- *)
-
-Inductive type_eval : tvenv -> ty -> ty_vl -> Prop :=
-| teval_bool: forall env,
-    type_eval env TBool TVBool
-| teval_tvar: forall env x VX,
-    indexr x env = Some VX ->
-    type_eval env (TVar x) VX
-| teval_fun: forall env T1 T2 V1 V2,
-    type_eval env T1 V1 ->
-    type_eval env T2 V2 ->
-    type_eval env (TFun T1 T2) (TVFun V1 V2)
-| teval_ttabs: forall env T2,
-    type_eval env (TTAbs T2) (TVAbs env T2)
-| teval_ttapp: forall env G TF T1 T2 V1 V2,
-    type_eval env TF (TVAbs G T2) ->
-    type_eval env T1 V1 ->
-    type_eval (V1 :: G) T2 V2 ->
-    type_eval env (TTApp TF T1) V2
-.
 
 (* ---------- syntactic term typing rules ---------- *)
 
@@ -288,7 +286,111 @@ Proof.
 Qed.
 *)
 
-(* ---------- LR definitions for types : kinds  ---------- *)
+
+
+(* ---------- syntax helper lemmas  ---------- *)
+
+Lemma splice_acc: forall e1 a b c,
+  splice_ty (splice_ty e1 a b) a c =
+  splice_ty e1 a (c+b).
+Proof. induction e1; intros; simpl; intuition.
+  + bdestruct (i <? a); intuition.  
+    bdestruct (i <? a); intuition.
+    bdestruct (i + b <? a); intuition.   
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. auto.
+  + specialize (IHe1 a b c).
+    rewrite IHe1. auto. 
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. auto.
+Qed.
+  
+Lemma splice_zero: forall e1 a,
+  (splice_ty e1 a 0) = e1.
+Proof. intros. induction e1; simpl; intuition.
+  + bdestruct (i <? a); intuition.
+  + rewrite IHe1_1. rewrite IHe1_2. auto.
+  + rewrite IHe1. auto.
+  + rewrite IHe1_1. rewrite IHe1_2. auto.
+Qed.
+
+Lemma indexr_splice_gt: forall{X} x (G1 G3: list X) T ,
+  indexr x (G3 ++ G1) = Some T ->
+  x >= length G1 ->
+  forall G2, 
+  indexr (x + (length G2))(G3 ++ G2 ++ G1) = Some T.
+Proof. 
+  intros.
+  induction G3; intros; simpl in *.
+  + apply indexr_var_some' in H as H'. intuition.
+  + bdestruct (x =? length (G3 ++ G1)); intuition.
+    - subst. inversion H. subst.
+      bdestruct (length (G3 ++ G1) + length G2 =? length (G3 ++ G2 ++ G1)); intuition.
+      repeat rewrite app_length in H1.
+      intuition.
+    - bdestruct (x + length G2 =? length (G3 ++ G2 ++ G1)); intuition.
+      apply indexr_var_some' in H2. intuition.
+Qed.      
+
+Lemma indexr_splice: forall{X} (H2' H2 HX: list X) x,
+  indexr (if x <? length H2 then x else x + length HX) (H2' ++ HX ++ H2) =
+  indexr x (H2' ++ H2).
+Proof.
+  intros.
+  bdestruct (x <? length H2); intuition.
+  repeat rewrite indexr_skips; auto. rewrite app_length. lia.
+  bdestruct (x <? length (H2' ++ H2)).
+  apply indexr_var_some in H0 as H0'.
+  destruct H0' as [T H0']; intuition.
+  rewrite H0'. apply indexr_splice_gt; auto.
+  apply indexr_var_none in H0 as H0'. rewrite H0'.
+  assert (x + length HX >= (length (H2' ++ HX ++ H2))). {
+    repeat rewrite app_length in *. lia.
+  }
+  rewrite indexr_var_none. auto.
+Qed.
+
+Lemma indexr_splice1: forall{X} (H2' H2: list X) x y,
+  indexr (if x <? length H2 then x else (S x)) (H2' ++ y :: H2) =
+  indexr x (H2' ++ H2).
+Proof.
+  intros.
+  specialize (indexr_splice H2' H2 [y] x); intuition.
+  simpl in *. replace (x +1) with (S x) in H. auto. lia.
+Qed.
+
+Lemma indexr_shift : forall{X} (H H': list X) x vx v,
+  x > length H  ->
+  indexr x (H' ++ vx :: H) = Some v <->
+  indexr (pred x) (H' ++ H) = Some v.
+Proof. 
+  intros. split; intros.
+  + destruct x; intuition.  simpl.
+  rewrite <- indexr_insert_ge  in  H1; auto. lia.
+  + destruct x; intuition. simpl in *.
+    assert (x >= length H). lia.
+    specialize (indexr_splice_gt x H H' v); intuition.
+    specialize (H3  [vx]); intuition. simpl in H3.
+    replace (x + 1) with (S x) in H3. auto. lia.
+Qed. 
+
+
+(* ---------- other helper lemmas  ---------- *)
+
+Lemma tevaln_unique: forall H1 e1 v1 v1',
+    tevaln H1 e1 v1 ->
+    tevaln H1 e1 v1' ->
+    v1 = v1'.
+Proof.
+  intros.
+  destruct H as [n1 ?].
+  destruct H0 as [n2 ?].
+  assert (1+n1+n2 > n1) as A1. lia.
+  assert (1+n1+n2 > n2) as A2. lia.
+  specialize (H _ A1).
+  specialize (H0 _ A2).
+  congruence.
+Qed.
 
 Lemma type_eval_unique: forall GV T V1,
     type_eval GV T V1 ->
@@ -307,6 +409,7 @@ Lemma type_eval_unique: forall GV T V1,
     eapply IHtype_eval3 in H9. eauto.
 Qed.
 
+  
 (* ---------- LR definitions for types : kinds  ---------- *)
 
 Fixpoint base_kind TL TR {struct TL}: Prop :=
@@ -358,6 +461,9 @@ Definition sem_kind G tl tr K :=
   forall HL HR,
     env_kind HL HR G ->
     exp_kind HL HR tl tr K.
+
+
+(* ---------- LR properties  ---------- *)
 
 Lemma envk_empty:
     env_kind [] [] [].
@@ -439,6 +545,8 @@ Proof.
     subst x0. eapply IHK2. eauto. eauto.
 Qed.
 
+
+(* ---------- LR compatibility lemmas  ---------- *)
 
 Lemma exp_bool: forall HL HR,
     exp_kind HL HR TBool TBool KTpe.
@@ -566,140 +674,7 @@ Proof.
 Qed.
 
 
-(* ---------- LR for equality  ---------- *)
-
-Lemma eq_refl: forall J T K,
-    has_kind J T K ->
-    sem_kind J T T K.
-Proof.
-  intros. eapply has_kind_fundamental. eauto. 
-Qed.
-
-Lemma eq_symm: forall J T1 T2 K,
-    sem_kind J T1 T2 K ->
-    sem_kind J T2 T1 K.
-Proof.
-  intros ??????? WFE.
-  edestruct H as (vl & vr &?&?&?). { (* envt_symm *)
-    destruct WFE as (LL & LR & WF).
-    split. 2: split. eapply LR. eapply LL. intros.
-    edestruct WF as (vl & vr & IXL & IXR & ?). eauto. 
-    eexists vr, vl. split. 2: split.
-    eauto. eauto.
-    eapply typek_symm. eauto.
-  }
-  eexists vr, vl. split. 2: split.
-  eauto. eauto.
-  eapply typek_symm. eauto. 
-Qed.
-
-Lemma eq_trans: forall J T1 T2 T3 K,
-    sem_kind J T1 T2 K ->
-    sem_kind J T2 T3 K ->
-    sem_kind J T1 T3 K.
-Proof.
-  intros ????? H1 H2.
-  eapply eq_symm in H1 as H1'. 
-  intros ?? WFE.
-  edestruct H1 as (?&?&?&?&?). eauto.
-  edestruct H2 as (?&?&?&?&?). {
-    destruct WFE as (LL & LR & WF). split. 2: split.
-    eapply LR. eapply LR. intros.
-    edestruct WF as (?&vr&?&?&?). eauto.
-    eexists vr,vr. split. 2: split.
-    eauto. eauto. eapply typek_trans. eapply typek_symm. eauto. eauto. }
-  assert (x0 = x1). eapply type_eval_unique; eauto. subst. 
-  eexists _,_. split. 2: split.
-  eauto. eauto.
-  eapply typek_trans. eauto. eauto. 
-Qed.
-
-
-(* towards beta proof: weaken, subst *)
-
-Lemma splice_acc: forall e1 a b c,
-  splice_ty (splice_ty e1 a b) a c =
-  splice_ty e1 a (c+b).
-Proof. induction e1; intros; simpl; intuition.
-  + bdestruct (i <? a); intuition.  
-    bdestruct (i <? a); intuition.
-    bdestruct (i + b <? a); intuition.   
-  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
-    rewrite IHe1_1. rewrite IHe1_2. auto.
-  + specialize (IHe1 a b c).
-    rewrite IHe1. auto. 
-  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
-    rewrite IHe1_1. rewrite IHe1_2. auto.
-Qed.
-  
-Lemma splice_zero: forall e1 a,
-  (splice_ty e1 a 0) = e1.
-Proof. intros. induction e1; simpl; intuition.
-  + bdestruct (i <? a); intuition.
-  + rewrite IHe1_1. rewrite IHe1_2. auto.
-  + rewrite IHe1. auto.
-  + rewrite IHe1_1. rewrite IHe1_2. auto.
-Qed.
-
-Lemma indexr_splice_gt: forall{X} x (G1 G3: list X) T ,
-  indexr x (G3 ++ G1) = Some T ->
-  x >= length G1 ->
-  forall G2, 
-  indexr (x + (length G2))(G3 ++ G2 ++ G1) = Some T.
-Proof. 
-  intros.
-  induction G3; intros; simpl in *.
-  + apply indexr_var_some' in H as H'. intuition.
-  + bdestruct (x =? length (G3 ++ G1)); intuition.
-    - subst. inversion H. subst.
-      bdestruct (length (G3 ++ G1) + length G2 =? length (G3 ++ G2 ++ G1)); intuition.
-      repeat rewrite app_length in H1.
-      intuition.
-    - bdestruct (x + length G2 =? length (G3 ++ G2 ++ G1)); intuition.
-      apply indexr_var_some' in H2. intuition.
-Qed.      
-
-Lemma indexr_splice: forall{X} (H2' H2 HX: list X) x,
-  indexr (if x <? length H2 then x else x + length HX) (H2' ++ HX ++ H2) =
-  indexr x (H2' ++ H2).
-Proof.
-  intros.
-  bdestruct (x <? length H2); intuition.
-  repeat rewrite indexr_skips; auto. rewrite app_length. lia.
-  bdestruct (x <? length (H2' ++ H2)).
-  apply indexr_var_some in H0 as H0'.
-  destruct H0' as [T H0']; intuition.
-  rewrite H0'. apply indexr_splice_gt; auto.
-  apply indexr_var_none in H0 as H0'. rewrite H0'.
-  assert (x + length HX >= (length (H2' ++ HX ++ H2))). {
-    repeat rewrite app_length in *. lia.
-  }
-  rewrite indexr_var_none. auto.
-Qed.
-
-Lemma indexr_splice1: forall{X} (H2' H2: list X) x y,
-  indexr (if x <? length H2 then x else (S x)) (H2' ++ y :: H2) =
-  indexr x (H2' ++ H2).
-Proof.
-  intros.
-  specialize (indexr_splice H2' H2 [y] x); intuition.
-  simpl in *. replace (x +1) with (S x) in H. auto. lia.
-Qed.
-
-Lemma indexr_shift : forall{X} (H H': list X) x vx v,
-  x > length H  ->
-  indexr x (H' ++ vx :: H) = Some v <->
-  indexr (pred x) (H' ++ H) = Some v.
-Proof. 
-  intros. split; intros.
-  + destruct x; intuition.  simpl.
-  rewrite <- indexr_insert_ge  in  H1; auto. lia.
-  + destruct x; intuition. simpl in *.
-    assert (x >= length H). lia.
-    specialize (indexr_splice_gt x H H' v); intuition.
-    specialize (H3  [vx]); intuition. simpl in H3.
-    replace (x + 1) with (S x) in H3. auto. lia.
-Qed. 
+(* ---------- weakening and substitution (for beta equiv)  ---------- *)
 
 Lemma st_weaken: forall e1 T1 G
   (W: has_kind G e1 T1),
@@ -737,7 +712,6 @@ Proof.
   subst v1. eauto.
 Qed.
 
-(* TODO: subst, beta *)
 Lemma st_subst : forall e2 T2 G0
                         (W: has_kind G0 e2 T2),
   forall G' G T1, G0 = G'++T1::G ->
@@ -790,6 +764,55 @@ Lemma st_subst1 : forall e1 e2 G T1 T2 H1 H2 v1,
 Proof.
   intros. eapply st_subst with (G':=[]) (H1':=[]) (H2':=[]); eauto. eauto.
   eapply H0. eapply H0. 
+Qed.
+
+
+(* ---------- LR compatibility lemmas for equality  ---------- *)
+
+Lemma eq_refl: forall J T K,
+    has_kind J T K ->
+    sem_kind J T T K.
+Proof.
+  intros. eapply has_kind_fundamental. eauto. 
+Qed.
+
+Lemma eq_symm: forall J T1 T2 K,
+    sem_kind J T1 T2 K ->
+    sem_kind J T2 T1 K.
+Proof.
+  intros ??????? WFE.
+  edestruct H as (vl & vr &?&?&?). { (* envt_symm *)
+    destruct WFE as (LL & LR & WF).
+    split. 2: split. eapply LR. eapply LL. intros.
+    edestruct WF as (vl & vr & IXL & IXR & ?). eauto. 
+    eexists vr, vl. split. 2: split.
+    eauto. eauto.
+    eapply typek_symm. eauto.
+  }
+  eexists vr, vl. split. 2: split.
+  eauto. eauto.
+  eapply typek_symm. eauto. 
+Qed.
+
+Lemma eq_trans: forall J T1 T2 T3 K,
+    sem_kind J T1 T2 K ->
+    sem_kind J T2 T3 K ->
+    sem_kind J T1 T3 K.
+Proof.
+  intros ????? H1 H2.
+  eapply eq_symm in H1 as H1'. 
+  intros ?? WFE.
+  edestruct H1 as (?&?&?&?&?). eauto.
+  edestruct H2 as (?&?&?&?&?). {
+    destruct WFE as (LL & LR & WF). split. 2: split.
+    eapply LR. eapply LR. intros.
+    edestruct WF as (?&vr&?&?&?). eauto.
+    eexists vr,vr. split. 2: split.
+    eauto. eauto. eapply typek_trans. eapply typek_symm. eauto. eauto. }
+  assert (x0 = x1). eapply type_eval_unique; eauto. subst. 
+  eexists _,_. split. 2: split.
+  eauto. eauto.
+  eapply typek_trans. eauto. eauto. 
 Qed.
 
 Lemma eq_beta: forall e1 e2 G T1 T2,
@@ -863,12 +886,24 @@ Definition env_type (H: venv) (G: tenv) (V: tvenv) :=
       val_type v T'.
 
 Definition sem_type G V t T :=
-  forall H,
-    env_type H G V ->
-    exp_type H V t T.
+  forall H J,
+    env_type H G J ->
+    env_kind J J V ->
+    exp_type H J t T.
 
 
 (* ---------- LR helper lemmas  ---------- *)
+
+Lemma valt_equiv: forall T1 T2 v,
+    type_kind T1 T2 KTpe ->
+    val_type v T1 <-> val_type v T2.
+Proof.
+  intros T1. induction T1; destruct v,T2; simpl in *; intuition; try contradiction.
+  - edestruct H as (?&?&?). eapply IHT1_1. eauto. eauto.
+    eexists. split. eauto. eapply IHT1_2. eauto. eauto. 
+  - edestruct H as (?&?&?). eapply IHT1_1. eauto. eauto.
+    eexists. split. eauto. eapply IHT1_2. eauto. eauto. 
+Qed.
 
 Lemma envt_empty:
     env_type [] [] [].
@@ -900,7 +935,7 @@ Lemma sem_true: forall G V,
     sem_type G V ttrue TBool.
 Proof.
   intros. (* intros WFG. split. eexists. eauto. *)
-  intros E WFE. exists (vbool true), TVBool. split. 2: split. 
+  intros E J WFE WFJ. exists (vbool true), TVBool. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - eauto.
   - simpl. eauto.
@@ -910,7 +945,7 @@ Lemma sem_false: forall G V,
     sem_type G V tfalse TBool.
 Proof.
   intros. (* intros WFG. split. eexists. eauto. *)
-  intros E WFE. exists (vbool false), TVBool. split. 2: split. 
+  intros E J WFE WFJ. exists (vbool false), TVBool. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - eauto.
   - simpl. eauto.
@@ -921,7 +956,7 @@ Lemma sem_var: forall G V x T,
     sem_type G V (tvar x) T.
 Proof.
   intros. (* intros WFG. split. eapply WFG. eauto. *)
-  intros E WFE.
+  intros E J WFE WFG.
   eapply WFE in H as IX. destruct IX as (v & T' & IX & NX & VX).
   exists v, T'. split. 2: split. 
   - exists 0. intros. destruct n. lia. simpl. rewrite IX. eauto.
@@ -929,14 +964,13 @@ Proof.
   - eauto. 
 Qed.
 
-Lemma sem_abs: forall G V J t T1 T2,
+Lemma sem_abs: forall G V t T1 T2,
     sem_type (T1::G) V t T2 ->
-    sem_kind J T1 T1 KTpe ->
-    sem_kind J T2 T2 KTpe ->
-    env_kind V V J ->
+    sem_kind V T1 T1 KTpe ->
+    sem_kind V T2 T2 KTpe ->
     sem_type G V (tabs t) (TFun T1 T2).
 Proof.
-  intros ? ? ? ? ? ? HY W2 W1 WKE. intros H WFE.
+  intros ? ? ? ? ? HY W2 W1. intros E J WFE WFJ.
   edestruct W1 as (T1' & V1 & N1L & N1R & VK). eauto. 
   edestruct W2 as (T2' & V2 & N2L & N2R & VK2). eauto. 
   eapply type_eval_unique in N1L. 2: eauto. subst. 
@@ -945,9 +979,9 @@ Proof.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - econstructor. eauto. eauto.
   - simpl. intros vx VX.
-    edestruct HY as (vy & TY' & ? & ? & ?). eapply envt_extend; eauto.
-    eapply type_eval_unique in N1R. 2: eauto. subst.     
-    exists vy. split. eauto. eauto. 
+    edestruct HY as (vy & TY' & ? & ? & ?). eapply envt_extend; eauto. eauto. 
+    eapply type_eval_unique in N1R. 2: eauto. subst.
+    exists vy. split. eauto. eauto.
 Qed.
 
 Lemma sem_app: forall G V f t T1 T2,
@@ -955,9 +989,9 @@ Lemma sem_app: forall G V f t T1 T2,
     sem_type G V t T1 ->
     sem_type G V (tapp f t) T2.
 Proof.
-  intros ? ? ? ? ? ? HF HX. intros H WFE.
-  destruct (HF H WFE) as (vf & TVF & STF & TEF & VF).
-  destruct (HX H WFE) as (vx & TVX & STX & TEX & VX).
+  intros ? ? ? ? ? ? HF HX. intros H J WFE WFJ.
+  destruct (HF H J WFE WFJ) as (vf & TVF & STF & TEF & VF).
+  destruct (HX H J WFE WFJ) as (vx & TVX & STX & TEX & VX).
   inversion TEF. subst. 
   destruct vf; simpl in VF; intuition.
   eapply type_eval_unique in TEX; eauto. subst V1.
@@ -973,29 +1007,15 @@ Proof.
   - eauto.
 Qed.
 
-
-
-Lemma valt_equiv: forall T1 T2 v,
-    type_kind T1 T2 KTpe ->
-    val_type v T1 <-> val_type v T2.
-Proof.
-  intros T1. induction T1; destruct v,T2; simpl in *; intuition; try contradiction.
-  - edestruct H as (?&?&?). eapply IHT1_1. eauto. eauto.
-    eexists. split. eauto. eapply IHT1_2. eauto. eauto. 
-  - edestruct H as (?&?&?). eapply IHT1_1. eauto. eauto.
-    eexists. split. eauto. eapply IHT1_2. eauto. eauto. 
-Qed.
-
-Lemma sem_equiv: forall G V J t T1 T2,
+Lemma sem_equiv: forall G V t T1 T2,
     sem_type G V t T1 ->
-    sem_kind J T1 T2 KTpe ->
-    env_kind V V J ->
+    sem_kind V T1 T2 KTpe ->
     sem_type G V t T2.
 Proof.
-  intros ?????? HX KX WKE. intros H WFE.
-  edestruct HX as (vx & T1' & A & B & VX). eauto.
+  intros ????? HX KX. intros H J WFE WFJ.
+  edestruct HX as (vx & T1' & A & B & VX). eauto. eauto.
   edestruct KX as (T1'' & T2' & ? & ? & ?). eauto.
-  eapply type_eval_unique in B; eauto. subst.   
+  eapply type_eval_unique in B; eauto. subst.
   eexists vx, T2'. split. 2: split. 
   - eauto.
   - eauto.
@@ -1005,12 +1025,11 @@ Qed.
                                                        
 (* ---------- LR fundamental property  ---------- *)
 
-Theorem fundamental: forall G V J t T,
+Theorem fundamental: forall G J t T,
     has_type G J t T ->
-    env_kind V V J ->
-    sem_type G V t T.
+    sem_type G J t T.
 Proof.
-  intros ? ? ? ? ? W U. 
+  intros ? ? ? ? W. 
   induction W.
   - eapply sem_true; eauto.
   - eapply sem_false; eauto.
@@ -1028,8 +1047,8 @@ Corollary safety: forall t T,
   exp_type [] [] t T.
 Proof. 
   intros. eapply fundamental in H as ST; eauto.
-  edestruct (ST []) as (v & T' & ? & ?). eapply envt_empty.
-  exists v, T'. intuition. eapply envk_empty. 
+  edestruct (ST []) as (v & T' & ? & ?). eapply envt_empty. eapply envk_empty.
+  exists v, T'. intuition. 
 Qed.
 
 End STLC.

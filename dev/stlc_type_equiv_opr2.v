@@ -10,9 +10,23 @@ In this file, we explore a type system that includes
 a form of type equivalence, this time expressed
 through a formal equivalence judgment.
 
-We include type operators, abstraction and application
-with a kinding system. The language corresponds to
-TAPL, Chapter 29.
+The type syntax includes type operators, i.e., 
+abstraction and application with a kinding system. 
+The language corresponds to TAPL, Chapter 29.
+Terms can depend on terms (regular lambda and
+application), and types can depend on types.
+
+Compared to Fw, this version is still missing a form 
+for terms to depend on types. This requires a 
+generalization of the LR definition for terms, with a 
+result domain that depends on the kind.
+
+(Like Fw and in contrast to CC, there is also no form 
+for types to depend on terms).
+
+Compared to file stlc_type_equiv_op1.v, this version
+drops the "dom T" and "range T" constructs but they
+are not hard to add back.
 
 *)
 

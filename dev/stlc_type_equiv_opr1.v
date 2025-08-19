@@ -161,52 +161,6 @@ Definition tevaln env e v := exists nm, forall n, n > nm -> teval n env e = Some
 
 (* ---------- type normalization rules ---------- *)
 
-Definition vt_none: tpe :=
-  fun v => False.
-
-Definition vt_any: tpe :=
-  fun v => True.
-
-Definition vt_bool: tpe :=
-  fun v =>
-    match v with
-    | vbool v => True
-    | _ => False
-    end.
-
-Definition vt_fun (T1 T2: tpe): tpe :=
-  fun v =>
-    match v with
-    | vabs H ty =>
-        forall vx,
-          T1 vx ->
-          exists vy,
-            tevaln (vx::H) ty vy /\
-            T2 vy
-    | _ => False
-    end.
-
-Definition vt_all (TF: tpe -> tpe): tpe :=
-  fun v =>
-    match v with
-    | vtabs H ty =>
-        forall T1,
-          exists vy,
-            tevaln H ty vy /\
-            (TF T1) vy
-    | _ => False
-    end.
-
-(*
-Fixpoint val_type T {struct T}: tpe :=
-  match T with
-  | TVBool => vt_bool
-  | TVFun T1 T2 => vt_fun (val_type T1) (val_type T2)
-  | TVAll GV T2 => vt_all (fun T1 => )
-  | _ => vt_none
-  end.
-*)
-
 Inductive type_eval : tvenv -> ty -> ty_vl -> Prop :=
 | teval_bool: forall env,
     type_eval env TBool TVBool
@@ -305,7 +259,11 @@ Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
     has_kind J T1 KTpe ->
     type_wf [] T1 ->
     has_type G J (tabs t) (TFun T1 T2)
-| t_app: forall G J f t TF,
+| t_app: forall G J f t T1 T2,
+    has_type G J f (TFun T1 T2) ->
+    has_type G J t T1 ->
+    has_type G J (tapp f t) T2
+| t_app2: forall G J f t TF,
     has_type G J f TF ->
     has_type G J t (TDom TF) ->
     has_type G J (tapp f t) (TRange TF)
@@ -559,66 +517,83 @@ Definition sem_type G V t T :=
 
 (* ---------- properties of type normalization and equivalence ---------- *)
 
-Lemma type_reify_unique': forall T V1,
-    type_reify T V1 ->
-    forall V2, type_reify T V2 ->
-    V1 = V2.
-Proof.
-Admitted. (* TODO: mutual induction *)
+
+Scheme type_eval_mut := Induction for type_eval Sort Prop
+with type_reify_mut := Induction for type_reify Sort Prop.
+
+Combined Scheme type_eval_reify_mutind from type_eval_mut, type_reify_mut.
+
+
+Lemma type_eval_reify_unique :
+  (forall GV T V1,
+      type_eval GV T V1 ->
+      forall V2, type_eval GV T V2 -> V1 = V2) /\
+  (forall V T1,
+      type_reify V T1 ->
+      forall T2, type_reify V T2 -> T1 = T2).
+Proof.   
+  eapply type_eval_reify_mutind with
+    (P := fun GV T V1 H => forall V2, type_eval GV T V2 -> V1 = V2)
+    (P0 := fun V T1 H => forall T2, type_reify V T2 -> T1 = T2);
+    intros.
+  (* type_eval *)
+  - inversion H. eauto.
+  - inversion H. congruence.
+  - inversion H1. subst. erewrite H, H0; eauto.
+  - inversion H. subst. eauto.
+  - inversion H0; subst.
+    + assert (TVFun V1 V2 = TVFun V0 V4). erewrite H; eauto.
+      inversion H1. eauto.
+    + assert (TVFun V1 V2 = (TVSym TF')). erewrite H; eauto.
+      inversion H1. 
+  - inversion H0; subst.
+    + assert (TVFun V1 V2 = TVFun V3 V0). erewrite H; eauto.
+      inversion H1. eauto.
+    + assert (TVFun V1 V2 = (TVSym TF')). erewrite H; eauto.
+      inversion H1. 
+  - inversion H2; subst.
+    + eapply H in H5. inversion H5. subst.
+      eapply H0 in H7. subst.
+      eapply H1 in H9. eauto.
+    + eapply H in H5. inversion H5. 
+  - inversion H0; subst.
+    + eapply H in H3. inversion H3.
+    + eapply H in H3. congruence.
+  - inversion H0; subst.
+    + eapply H in H3. inversion H3.
+    + eapply H in H3. congruence.
+  - inversion H2; subst.
+    + eapply H in H5. inversion H5.
+    + eapply H in H5. inversion H5. subst.
+      eapply H0 in H7. subst.
+      assert (T1' = T1'0). eapply H1; eauto. 
+      subst. eauto.
+  (* type_reify *)
+  - inversion H. eauto.
+  - inversion H1. subst.
+    eapply H in H4. subst.
+    eapply H0 in H6. subst. eauto.
+  - inversion H1. subst.
+    assert (V2 = V0). eapply H; eauto. subst. 
+    eapply H0 in H6. subst. eauto.
+  - inversion H. eauto. 
+Qed.
 
 Lemma type_eval_unique: forall GV T V1,
     type_eval GV T V1 ->
     forall V2, type_eval GV T V2 ->
     V1 = V2.
-Proof. 
-  intros G T V1 H. induction H; intros.
-  - inversion H. eauto.
-  - inversion H0. congruence.
-  - inversion H1. subst. erewrite IHtype_eval1, IHtype_eval2; eauto.
-  - inversion H. subst. eauto. 
-  - inversion H0; subst.
-    + assert (TVFun V1 V2 = TVFun V0 V4). erewrite IHtype_eval; eauto.
-      inversion H1. eauto.
-    + assert (TVFun V1 V2 = (TVSym TF')). erewrite IHtype_eval; eauto.
-      inversion H1. 
-  - inversion H0; subst.
-    + assert (TVFun V1 V2 = TVFun V3 V0). erewrite IHtype_eval; eauto.
-      inversion H1. eauto.
-    + assert (TVFun V1 V2 = (TVSym TF')). erewrite IHtype_eval; eauto.
-      inversion H1. 
-  - inversion H2; subst.
-    + eapply IHtype_eval1 in H5. inversion H5. subst.
-      eapply IHtype_eval2 in H7. subst.
-      eapply IHtype_eval3 in H9. eauto.
-    + eapply IHtype_eval1 in H5. inversion H5. 
-  - inversion H0; subst.
-    + eapply IHtype_eval in H3. inversion H3.
-    + eapply IHtype_eval in H3. congruence.
-  - inversion H0; subst.
-    + eapply IHtype_eval in H3. inversion H3.
-    + eapply IHtype_eval in H3. congruence.
-  - inversion H2; subst.
-    + eapply IHtype_eval1 in H5. inversion H5.
-    + eapply IHtype_eval1 in H5. inversion H5. subst.
-      eapply IHtype_eval2 in H7. subst.
-      assert (T1' = T1'0). eapply type_reify_unique'; eauto. 
-      subst. eauto.
+Proof.
+  eapply type_eval_reify_unique.
 Qed.
+
     
 Lemma type_reify_unique: forall T V1,
     type_reify T V1 ->
     forall V2, type_reify T V2 ->
     V1 = V2.
 Proof. 
-  intros T V1 H. induction H; intros.
-  - inversion H. eauto.
-  - inversion H1. subst.
-    eapply IHtype_reify1 in H4. subst.
-    eapply IHtype_reify2 in H6. subst. eauto.
-  - inversion H1. subst.
-    assert (V1 = V2). eapply type_eval_unique; eauto. subst. 
-    eapply IHtype_reify in H6. subst. eauto.
-  - inversion H. eauto. 
+  eapply type_eval_reify_unique.
 Qed.
 
 Lemma type_normalize_unique: forall GV T V1,
@@ -735,18 +710,29 @@ Qed.
 
 (*
 sem_app, traditional form:
+ *)
 
-Lemma sem_app: forall G f t T1 T2,
-    sem_type G f (TTFun T1 T2) ->
-    sem_type G t T1 ->
-    sem_type G (tapp f t) T2.
+Lemma sem_app: forall G V f t T1 T2,
+    sem_type G V f (TFun T1 T2) ->
+    sem_type G V t T1 ->
+    sem_type G V (tapp f t) T2.
 Proof.
-  intros ? ? ? ? ? HF HX. intros E WFE.
-  destruct (HF E WFE) as (vf & STF & VF).
-  destruct (HX E WFE) as (vx & STX & VX).
+  intros ? ? ? ? ? ? HF HX. intros WFG.
+  destruct (HF WFG) as (WF & HF').
+  destruct (HX WFG) as (WX & HX').
+  split. {
+    destruct WF as (? & ? & ? & ?).
+    inversion H. subst. inversion H0. subst. 
+    eexists _,_. split; eauto. }
+  intros E WFE. 
+  destruct (HF' E WFE) as (vf & TF' & STF & NF & VF).
+  destruct (HX' E WFE) as (vx & TX' & STX & NX & VX).
+  destruct NF as (NF' & NF1 & NF2).
+  inversion NF1. subst. inversion NF2. subst.
+  assert (T1' = TX'). eapply type_normalize_unique; eauto. subst. 
   destruct vf; simpl in VF; intuition.
   edestruct VF as (vy & STY & VY). eauto. 
-  exists vy. split.
+  exists vy, T2'. split. 2: split. 
   - destruct STF as (n1 & STF).
     destruct STX as (n2 & STX).
     destruct STY as (n3 & STY).
@@ -754,11 +740,10 @@ Proof.
     simpl. rewrite STF, STX, STY. 2,3,4: lia.
     eauto.
   - eauto.
+  - eauto.
 Qed.
 
-*)
-
-Lemma sem_app: forall G V f t TF,
+Lemma sem_app2: forall G V f t TF,
     sem_type G V f TF ->
     sem_type G V t (TDom TF) ->
     sem_type G V (tapp f t) (TRange TF).
@@ -858,6 +843,7 @@ Proof.
   - eapply sem_var; eauto.
   - eapply sem_abs; eauto.
   - eapply sem_app; eauto. 
+  - eapply sem_app2; eauto. 
   - eapply sem_equiv; eauto.
 Qed.
 

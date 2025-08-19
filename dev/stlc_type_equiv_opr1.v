@@ -29,9 +29,10 @@ Terms can depend on terms (regular lambda and
 application), and types can depend on types.
 
 Compared to Fw, this version is still missing a form 
-for terms to depend on types. This requires a 
-generalization of the LR definition for terms, with a 
-result domain that depends on the kind.
+for terms to depend on types or type operators.
+Adding this will require generalizing the LR
+definition for terms to support a result domain
+that depends on the kind.
 
 (Like Fw and in contrast to CC, there is also no form 
 for types to depend on terms).

@@ -20,7 +20,7 @@ by evaluation ("evaluate" a type, then reify back).
 The semantic interpretation of types, i.e., the
 logical relation defining semantically well-typed
 values and terms only needs to be defined for types
-in formal form.
+in normal form.
 
 The type syntax includes type operators, i.e., 
 abstraction and application with a kinding system. 

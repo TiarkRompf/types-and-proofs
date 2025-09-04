@@ -69,8 +69,8 @@ Inductive vl: Type :=
 .
 
 Definition venv := list vl.
-Definition tenv := list (ty). (* None means type variable, Some T means term variable *)
-Definition kenv := list (unit). (* None means type variable, Some T means term variable *)
+Definition tenv := list (ty). 
+Definition kenv := list (unit). (* could just be a nat *)
 
 #[global] Hint Unfold venv.
 #[global] Hint Unfold tenv.

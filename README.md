@@ -76,6 +76,8 @@ STLC with parametric types (System F):
 
 - System F [stlc_tabs.v](pub/stlc_tabs.v)
 
+- Variations: [stlc_tabs2.v](pub/stlc_tabs2.v),  [stlc_tabs3.v](pub/stlc_tabs3.v)
+
 
 ## Contributors
 

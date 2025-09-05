@@ -425,6 +425,28 @@ Proof.
   rewrite indexr_skip in H. eapply X0. eauto. eauto. 
 Defined.
 
+Lemma envkv_weaken: forall J' J K,
+    val_kind K ->
+    env_kv (J'++J) ->
+    env_kv (J'++K::J).
+Proof.
+  intros. intros ???.  
+  destruct (Nat.eq_dec x (length J)). subst.
+  rewrite indexr_skips in H. rewrite indexr_head in H. inversion H. subst. eauto.
+  simpl. eauto.
+  bdestruct (x <? length J). 
+  rewrite indexr_skips in H. rewrite indexr_skip in H. eapply X0.
+  rewrite indexr_skips. eauto. eapply indexr_var_some' in H. eauto.
+  eauto. simpl. eauto.
+  remember (x-1) as y. 
+  replace x with (if y <? length J then y else (S y)) in H.
+  rewrite indexr_splice1 in H.
+  eapply X0. eauto.
+  bdestruct (y <? length J). lia. lia. 
+Defined.
+
+
+
 (*
 Fixpoint val_type0 {J T K} (h : has_kindv J T K) (W : env_kv J) {struct h}: val_kind K :=
   match h, T, K return val_kind K with
@@ -557,10 +579,36 @@ Proof.
   intros. eapply haskind_weaken1 with (J':=[]). eauto. 
 Defined.
 
+(* XXX: need to generalize signature to a proper widening
+        lemma. Need to define a notion of haskind_extend_mult for this. *)
+Lemma valt_weaken: forall T J' J K1 vk (h1: has_kind (J'++J) T KTpe) h2 v2,
+    val_type h1 h2 v2 <->
+    val_type (haskind_weaken1 T J' J KTpe K1 h1)
+    (envkv_weaken J' J K1 vk h2) v2.
+Proof.
+Admitted.
+
+
+Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
+      envkv_weaken [] J K1 vk h2 = envkv_cons J K1 vk h2.
+Proof.
+Admitted.
+
+Lemma valt_extend: forall T J K1 vk (h1: has_kind J T KTpe) h2 v2,
+    val_type h1 h2 v2 <->
+    val_type (haskind_extend T J KTpe K1 h1)
+    (envkv_cons J K1 vk h2) v2.
+Proof.
+  intros.
+  specialize valt_weaken with (J':=[]). simpl. intros. unfold haskind_extend.
+  replace (envkv_cons J K1 vk h2) with (envkv_weaken [] J K1 vk h2).
+  eauto.
+  eapply envkv_weaken_eq_extend. 
+Qed.
 
 (* XXX: need to generalize signature to a proper widening
         lemma. Need to define a notion of haskind_extend_mult for this. *)
-Lemma valt_extend: forall T J K1 vk (h1: has_kind J T KTpe) h2 v2,
+Lemma valt_extend': forall T J K1 vk (h1: has_kind J T KTpe) h2 v2,
     val_type h1 h2 v2 <->
     val_type (haskind_extend T J KTpe K1 h1)
     (envkv_cons J K1 vk h2) v2.

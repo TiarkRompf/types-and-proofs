@@ -12,13 +12,13 @@ type operators.
 
 TODO:
 
-- weakending for has_kind, val_type
+- weakening for has_kind, val_type
 
 - substitution for has_kind, val_type
 
 - bring back type equiv judgment and
-  proper conversion rule (how: binary LR?
-  just implement substitution and other lemmas?)
+  proper conversion rule (how: need binary LR?
+  or just rely on valt_subst?)
 
 
 *)
@@ -425,6 +425,8 @@ Proof.
   rewrite indexr_skip in H. eapply X0. eauto. eauto. 
 Defined.
 
+Require Import Coq.Arith.Compare_dec.
+
 Lemma envkv_weaken: forall J' J K,
     val_kind K ->
     env_kv (J'++J) ->
@@ -434,7 +436,7 @@ Proof.
   destruct (Nat.eq_dec x (length J)). subst.
   rewrite indexr_skips in H. rewrite indexr_head in H. inversion H. subst. eauto.
   simpl. eauto.
-  bdestruct (x <? length J). 
+  destruct (lt_dec x (length J)). 
   rewrite indexr_skips in H. rewrite indexr_skip in H. eapply X0.
   rewrite indexr_skips. eauto. eapply indexr_var_some' in H. eauto.
   eauto. simpl. eauto.
@@ -579,20 +581,89 @@ Proof.
   intros. eapply haskind_weaken1 with (J':=[]). eauto. 
 Defined.
 
-(* XXX: need to generalize signature to a proper widening
-        lemma. Need to define a notion of haskind_extend_mult for this. *)
-Lemma valt_weaken: forall T J' J K1 vk (h1: has_kind (J'++J) T KTpe) h2 v2,
-    val_type h1 h2 v2 <->
-    val_type (haskind_weaken1 T J' J KTpe K1 h1)
-    (envkv_weaken J' J K1 vk h2) v2.
-Proof.
-Admitted.
 
+(* TODO: env_kv helper lemmas *)
 
 Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
       envkv_weaken [] J K1 vk h2 = envkv_cons J K1 vk h2.
 Proof.
 Admitted.
+
+
+Lemma aux1: forall J' J (h2 : env_kv (J' ++ J)) i K e K1 vk e1,
+    
+    h2 i K e = (envkv_weaken J' J K1 vk h2) (if i <? length J then i else i+1) K e1.
+Proof.
+  intros.
+  unfold envkv_weaken. bdestruct (i <? length J).
+  remember (Nat.eq_dec i (length J)).
+  destruct s. lia.
+  remember (lt_dec i (length J)).
+  destruct s.
+  simpl. 
+Admitted.
+
+Lemma aux2: forall J' J K1 k vk h2 VT1,
+    (envkv_cons (J' ++ K1 :: J) k VT1 (envkv_weaken J' J K1 vk h2)) =
+      (envkv_weaken (k :: J') J K1 vk (envkv_cons (J' ++ J) k VT1 h2)).
+Proof.
+  intros.
+Admitted. 
+
+
+Lemma valt_weaken: forall T J' J K1 K vk (h1: has_kind (J'++J) T K) h2,
+    val_type h1 h2 =
+    val_type (haskind_weaken1 T J' J K K1 h1)
+    (envkv_weaken J' J K1 vk h2).
+Proof.
+  intros T. induction T; intros; inversion h1; subst.
+  - dependent destruction h1.
+    simpl. split; eauto.
+  - dependent destruction h1.
+    remember (k_var (J'++J) i K e) as hx1.
+    remember ((haskind_weaken1 (TVar i) J' J K K1 hx1)) as hx1'.
+    remember ((envkv_weaken J' J K1 vk h2)) as h2'.
+    dependent destruction hx1. inversion Heqhx1. rewrite Heqhx1 in *.
+    dependent destruction hx1'.
+    simpl.
+    subst h2'. eapply aux1.
+  - (* TFun *)
+    dependent destruction h1.
+    simpl in *. 
+    assert (val_type h1_1 h2 = val_type (haskind_weaken1 T1 J' J KTpe K1 h1_1) (envkv_weaken J' J K1 vk h2)). eapply IHT1. 
+    assert (val_type h1_2 h2 = val_type (haskind_weaken1 T2 J' J KTpe K1 h1_2) (envkv_weaken J' J K1 vk h2)). eapply IHT2. 
+    rewrite H, H0. eauto.
+  - (* TAll *)
+    dependent destruction h1. simpl.
+    assert (forall VT1, val_type h1 (envkv_cons (J'++J) k VT1 h2) =
+                          val_type (haskind_weaken1 T (k::J') J KTpe K1 h1) (envkv_weaken (k::J') J K1 vk (envkv_cons (J'++J) k VT1 h2))). {
+    intros. 
+    specialize IHT with (J':=k::J') (J:=J) (vk:=vk) (h1:=h1) (h2:=(envkv_cons (J'++J) k VT1 h2)).
+    eapply IHT.}
+    eapply functional_extensionality in H.
+    rewrite H.
+    assert (forall VT1,
+     val_type (haskind_weaken1 T (k :: J') J KTpe K1 h1) (envkv_weaken (k :: J') J K1 vk (envkv_cons (J' ++ J) k VT1 h2)) = val_type (haskind_weaken1 T (k :: J') J KTpe K1 h1) (envkv_cons (J' ++ K1 :: J) k VT1 (envkv_weaken J' J K1 vk h2))).
+    intros. rewrite aux2. eauto.
+    eapply functional_extensionality in H0.
+    rewrite H0. eauto.
+  - (* TTAbs *)
+    dependent destruction h1.
+    remember (k_tabs (J' ++ J) k T K2 h1) as h1'.
+    dependent destruction h1'.
+    simpl in *. eapply functional_extensionality.
+    intros.
+    specialize IHT with (J':=k::J') (h1:=h1') (h2:=(envkv_cons (J' ++ J) k x h2)) (vk:=vk).
+    rewrite aux2. eapply IHT. 
+  - (* TTApp *)
+    dependent destruction h1. simpl.
+    specialize (IHT1) with (h1:=h1_1) (h2:=h2).
+    erewrite IHT1.
+    specialize (IHT2) with (h1:=h1_2) (h2:=h2).
+    erewrite IHT2.
+    eauto. 
+Qed.
+
 
 Lemma valt_extend: forall T J K1 vk (h1: has_kind J T KTpe) h2 v2,
     val_type h1 h2 v2 <->
@@ -602,52 +673,10 @@ Proof.
   intros.
   specialize valt_weaken with (J':=[]). simpl. intros. unfold haskind_extend.
   replace (envkv_cons J K1 vk h2) with (envkv_weaken [] J K1 vk h2).
-  eauto.
-  eapply envkv_weaken_eq_extend. 
+  erewrite H. 2: 
+  eapply envkv_weaken_eq_extend. split; eauto. 
 Qed.
 
-(* XXX: need to generalize signature to a proper widening
-        lemma. Need to define a notion of haskind_extend_mult for this. *)
-Lemma valt_extend': forall T J K1 vk (h1: has_kind J T KTpe) h2 v2,
-    val_type h1 h2 v2 <->
-    val_type (haskind_extend T J KTpe K1 h1)
-    (envkv_cons J K1 vk h2) v2.
-Proof.
-  intros T. induction T; intros; inversion h1; subst.
-  - dependent destruction h1.
-    simpl. split; eauto.
-  - dependent destruction h1.
-    remember (k_var J i KTpe e) as hx1. 
-    remember ((haskind_extend (TVar i) J KTpe K1 hx1)) as hx1'.
-    remember ((envkv_cons J K1 vk h2)) as h2'.
-    dependent destruction hx1.
-    dependent destruction hx1'.
-    simpl. clear Heqhx1. clear Heqhx1'.
-    bdestruct (i <? length J).
-    2: { eapply indexr_var_some' in H0. lia. }
-    subst h2'. unfold envkv_cons.
-    remember (Nat.eq_dec i (length J)). destruct s. lia.
-    simpl. assert (indexr i (K1 :: J) = Some KTpe).
-    rewrite indexr_skip. eauto. eauto.
-    unfold eq_ind. remember (indexr_skip n).
-    dependent destruction e2.
-
-    (* XXX ... issues unfolding haskind_extend ... almost there ... *)
-    admit.
-  - dependent destruction h1.
-    simpl in *. 
-    assert (val_type h1_1 h2 = val_type (haskind_weaken1 T1 [] J KTpe K1 h1_1) (envkv_cons J K1 vk h2)).
-    eapply functional_extensionality. intros.
-    eapply propositional_extensionality. eapply IHT1. 
-    assert (val_type h1_2 h2 = val_type (haskind_weaken1 T2 [] J KTpe K1 h1_2) (envkv_cons J K1 vk h2)).
-    eapply functional_extensionality. intros.
-    eapply propositional_extensionality. eapply IHT2. 
-
-    rewrite H, H0. intuition.
-  - dependent destruction h1.
-    simpl in *.
-
-Admitted.
 
 
 (* substitution *)
@@ -826,9 +855,6 @@ Proof.
   - eapply valt_subst. eauto. 
 Qed.
   
-
-
-
 
 Lemma sem_equiv: forall G J t T1 T2,
     sem_type G J t T1 ->

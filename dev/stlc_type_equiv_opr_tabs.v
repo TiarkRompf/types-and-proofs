@@ -310,6 +310,19 @@ Proof.
   simpl in *. replace (x +1) with (S x) in H. auto. lia.
 Qed.
 
+Lemma indexr_splice2: forall{X} (H2' H2: list X) x y,
+  x <> length H2 ->
+  indexr x (H2' ++ y :: H2) =
+  indexr (if x <? length H2 then x else x-1) (H2' ++ H2).
+Proof.
+  intros. 
+  specialize (indexr_splice H2' H2 [y] (if x <? length H2 then x else x -1)); intuition. simpl in *. 
+  bdestruct (x <? length H2). eauto.
+  bdestruct (x <? length H2). eauto. lia.
+  bdestruct (x-1 <? length H2). lia.
+  replace x with (x-1+1) at 1. 2: lia. eauto. 
+Qed.
+
 Lemma splice_acc: forall e1 a b c,
   splice a c (splice a b e1) =
   splice a (c+b) e1.

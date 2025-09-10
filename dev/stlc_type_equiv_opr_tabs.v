@@ -594,18 +594,53 @@ Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
 Proof.
 Admitted.
 
+Lemma aux0: forall i i' J K (eq: i = i')
+(h2: forall i K, indexr i (J) = Some K -> val_kind K)
+(h2A: indexr i (J) = Some K -> val_kind K)
+(h2B: indexr i' (J) = Some K -> val_kind K)
+(eq2A: h2A = h2 i K)
+(eq2B: h2B = h2 i' K)
+eA eB, h2A eA = h2B eB.
+Proof.
+  intros. subst i'. subst. (* note: subst i' works, but not rewrite *)
+  replace eA with eB. eauto. eapply proof_irrelevance. 
+Qed.
+
 
 Lemma aux1: forall J' J (h2 : env_kv (J' ++ J)) i K e K1 vk e1,
-    
     h2 i K e = (envkv_weaken J' J K1 vk h2) (if i <? length J then i else i+1) K e1.
 Proof.
   intros.
-  unfold envkv_weaken. bdestruct (i <? length J).
-  remember (Nat.eq_dec i (length J)).
-  destruct s. lia.
-  remember (lt_dec i (length J)).
-  destruct s.
-  simpl. 
+  bdestruct (i <? length J).
+  - unfold envkv_weaken. 
+    remember (Nat.eq_dec i (length J)). destruct s. lia.
+    remember (h2 i K) as h2A. 
+    remember (h2 (if i <? length J then i else i - 1) K) as h2B.
+    unfold eq_ind.
+    remember (indexr_splice2 J' J i K1 n) as IS. 
+    (* challenge: show that
+         h2A = h2B
+       and
+         e = e1
+
+       difficult, because h2A and h2B do not have the same type!
+    *)
+
+    (* cannot state equality:
+      assert (h2A = h2B).
+     *)
+
+    assert ((if i <? length J then i else i - 1) = i) as RW. bdestruct (i <? length J); lia.
+
+    (* cannot rewrite:
+      rewrite RW in Heqh2B.
+     *)
+
+    (* but using a helper lemma seems to work! *)
+    eapply aux0. eauto. eauto. eauto. 
+
+  - (* Todo: second case *)
+    admit.
 Admitted.
 
 Lemma aux2: forall J' J K1 k vk h2 VT1,

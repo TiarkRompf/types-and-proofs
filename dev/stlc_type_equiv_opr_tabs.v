@@ -449,15 +449,7 @@ Proof.
   destruct (Nat.eq_dec x (length J)). subst.
   rewrite indexr_skips in H. rewrite indexr_head in H. inversion H. subst. eauto.
   simpl. eauto.
-  destruct (lt_dec x (length J)). 
-  rewrite indexr_skips in H. rewrite indexr_skip in H. eapply X0.
-  rewrite indexr_skips. eauto. eapply indexr_var_some' in H. eauto.
-  eauto. simpl. eauto.
-  remember (x-1) as y. 
-  replace x with (if y <? length J then y else (S y)) in H.
-  rewrite indexr_splice1 in H.
-  eapply X0. eauto.
-  bdestruct (y <? length J). lia. lia. 
+  rewrite indexr_splice2 in H; eauto. 
 Defined.
 
 

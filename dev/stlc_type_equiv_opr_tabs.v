@@ -594,13 +594,15 @@ Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
 Proof.
 Admitted.
 
-Lemma aux0: forall i i' J K (eq: i = i')
-(h2: forall i K, indexr i (J) = Some K -> val_kind K)
-(h2A: indexr i (J) = Some K -> val_kind K)
-(h2B: indexr i' (J) = Some K -> val_kind K)
-(eq2A: h2A = h2 i K)
-(eq2B: h2B = h2 i' K)
-eA eB, h2A eA = h2B eB.
+Lemma aux0: forall i i' J K
+  (eq: i = i')
+  (h2: forall i K, indexr i (J) = Some K -> val_kind K)
+  (h2A: indexr i (J) = Some K -> val_kind K)
+  (h2B: indexr i' (J) = Some K -> val_kind K)
+  (eq2A: h2A = h2 i K)
+  (eq2B: h2B = h2 i' K)
+  eA eB,
+    h2A eA = h2B eB.
 Proof.
   intros. subst i'. subst. (* note: subst i' works, but not rewrite *)
   replace eA with eB. eauto. eapply proof_irrelevance. 
@@ -617,31 +619,34 @@ Proof.
     remember (h2 i K) as h2A. 
     remember (h2 (if i <? length J then i else i - 1) K) as h2B.
     unfold eq_ind.
-    remember (indexr_splice2 J' J i K1 n) as IS. 
-    (* challenge: show that
+    remember (indexr_splice2 J' J i K1 n) as IS.
+    assert ((if i <? length J then i else i - 1) = i) as RW. bdestruct (i <? length J); lia.
+
+    (* challenge: we need to show that
          h2A = h2B
        and
          e = e1
+       but this is difficult, because h2A and h2B do not have the same type!
 
-       difficult, because h2A and h2B do not have the same type!
-    *)
+       we cannot state the equality directly:
+         assert (h2A = h2B).  (* error *)
 
-    (* cannot state equality:
-      assert (h2A = h2B).
-     *)
-
-    assert ((if i <? length J then i else i - 1) = i) as RW. bdestruct (i <? length J); lia.
-
-    (* cannot rewrite:
-      rewrite RW in Heqh2B.
+       we cannot rewrite:
+        rewrite RW in Heqh2B.  (* error *)
      *)
 
     (* but using a helper lemma seems to work! *)
     eapply aux0. eauto. eauto. eauto. 
 
-  - (* Todo: second case *)
-    admit.
-Admitted.
+  - unfold envkv_weaken. 
+    remember (Nat.eq_dec (i+1) (length J)). destruct s. lia.
+    remember (h2 i K) as h2A. 
+    remember (h2 (if i + 1 <? length J then i + 1 else i + 1 - 1) K) as h2B.
+    unfold eq_ind.
+    remember (indexr_splice2 J' J (i + 1) K1 n) as IS.
+    assert ((if i+1 <? length J then i+1 else i+1-1) = i) as RW. bdestruct (i+1 <? length J); lia.
+    eapply aux0. eauto. eauto. eauto. 
+Qed.
 
 Lemma aux2: forall J' J K1 k vk h2 VT1,
     (envkv_cons (J' ++ K1 :: J) k VT1 (envkv_weaken J' J K1 vk h2)) =

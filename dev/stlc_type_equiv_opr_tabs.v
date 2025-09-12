@@ -12,7 +12,7 @@ type operators.
 
 TODO:
 
-- weakening for has_kind, val_type
+(X) weakening for has_kind, val_type
 
 - substitution for has_kind, val_type
 
@@ -438,7 +438,35 @@ Proof.
   rewrite indexr_skip in H. eapply X0. eauto. eauto. 
 Defined.
 
+Print envkv_cons. 
+
+
+
+
+(*
+Definition envkv_cons' J K (vk : val_kind K) (h2 : env_kv J) : env_kv (K::J) :=
+  fun x K' =>
+    match Nat.eq_dec x (length J) with
+    | left e =>
+        match e in _ = y return (indexr x (K::J) = Some K' -> val_kind K') with
+        | eq_refl =>
+            fun H =>
+              match indexr_head in _ = y return (match y with Some K0 => val_kind K0 | _ => unit end) with
+              | eq_refl => vk
+              end
+        end
+    | right ne => h2 _ _ (indexr_skip _ _ ne)
+    end.
+*)
+
+
 Require Import Coq.Arith.Compare_dec.
+
+Lemma indexr_hit: forall {T} J' J (K:T) ,
+    indexr (length J) (J' ++ K :: J) = Some K.
+Proof.
+  intros. rewrite indexr_skips. rewrite indexr_head. eauto. simpl. eauto.
+Qed.
 
 Lemma envkv_weaken: forall J' J K,
     val_kind K ->
@@ -447,8 +475,7 @@ Lemma envkv_weaken: forall J' J K,
 Proof.
   intros. intros ???.  
   destruct (Nat.eq_dec x (length J)). subst.
-  rewrite indexr_skips in H. rewrite indexr_head in H. inversion H. subst. eauto.
-  simpl. eauto.
+  rewrite indexr_hit in H. inversion H. subst. eauto. 
   rewrite indexr_splice2 in H; eauto. 
 Defined.
 
@@ -587,13 +614,6 @@ Proof.
 Defined.
 
 
-(* TODO: env_kv helper lemmas *)
-
-Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
-      envkv_weaken [] J K1 vk h2 = envkv_cons J K1 vk h2.
-Proof.
-Admitted.
-
 Lemma aux0: forall i i' J K
   (eq: i = i')
   (h2: forall i K, indexr i (J) = Some K -> val_kind K)
@@ -606,6 +626,76 @@ Lemma aux0: forall i i' J K
 Proof.
   intros. subst i'. subst. (* note: subst i' works, but not rewrite *)
   replace eA with eB. eauto. eapply proof_irrelevance. 
+Qed.
+
+Lemma envkv_cons_head: forall J K1 vk h2 IX,
+    envkv_cons J K1 vk h2 (length J) K1 IX = vk.
+Proof.
+  intros J K1 vk h2 IX.
+  unfold envkv_cons.
+  destruct (Nat.eq_dec (length J) (length J)) as [Heq | Hneq].
+  - dependent destruction Heq.     
+    remember indexr_head. replace IX with e. 2: eapply proof_irrelevance. 
+    cbn.
+    remember (eq_ind (if length J =? length J then Some K1 else indexr (length J) J)
+      (fun o : option kn => o = Some K1) e (Some K1) e). 
+    simpl in e0. 
+    dependent destruction e0.
+    cbn. eauto. 
+  - congruence.
+Qed.
+
+Lemma envkv_cons_skip: forall J K1 K i vk (h2:env_kv J) IX IX',
+    i < length J ->
+    envkv_cons J K1 vk h2 i K IX' = h2 i K IX.
+Proof.
+  intros.
+  unfold envkv_cons.
+  destruct (Nat.eq_dec i (length J)) as [Heq | Hneq].
+  - lia. 
+  - eapply aux0. eauto. eauto. eauto. 
+Qed.
+
+
+Lemma envkv_weaken_hit: forall J' J K1 vk h2 IX,
+    envkv_weaken J' J K1 vk h2 (length J) K1 IX = vk.
+Proof.
+  intros.
+  unfold envkv_weaken.
+  destruct (Nat.eq_dec (length J) (length J)) as [Heq | Hneq].
+  - dependent destruction Heq.
+    remember (indexr_hit J' J K1). replace IX with e. 2: eapply proof_irrelevance.
+    cbn. 
+    remember (eq_ind (indexr (length J) (J' ++ K1 :: J))
+      (fun o : option kn => o = Some K1) e (Some K1) e). 
+    simpl in e0. 
+    dependent destruction e0.
+    cbn. eauto. 
+  - congruence. 
+Qed.
+
+
+Lemma envkv_weaken_lt: forall J' J K1 K i vk h2 IX IX',
+    i < length J ->
+    envkv_weaken J' J K1 vk h2 i K IX' = h2 i K IX.
+Proof.
+  intros.
+  unfold envkv_weaken.
+  destruct (Nat.eq_dec i (length J)) as [Heq | Hneq].
+  - lia. 
+  - eapply aux0. bdestruct (i <? length J). eauto. lia. eauto. eauto. 
+Qed.
+
+Lemma envkv_weaken_ge: forall J' J K1 K i i' vk h2 IX IX',
+    i >= length J ->
+    i' = i+1 ->
+    envkv_weaken J' J K1 vk h2 i' K IX' = h2 i K IX.
+Proof.
+  intros.
+  unfold envkv_weaken.
+  destruct (Nat.eq_dec i' (length J)) as [Heq | Hneq].
+  - lia.
+  - eapply aux0. bdestruct (i' <? length J). lia. lia. eauto. eauto.
 Qed.
 
 
@@ -653,8 +743,72 @@ Lemma aux2: forall J' J K1 k vk h2 VT1,
       (envkv_weaken (k :: J') J K1 vk (envkv_cons (J' ++ J) k VT1 h2)).
 Proof.
   intros.
-Admitted. 
+  eapply functional_extensionality_dep. intros i.
+  eapply functional_extensionality_dep. intros K.
+  eapply functional_extensionality_dep. intros IX.
+  assert (indexr i (k :: J' ++ K1 :: J) = Some K) as IX'. eapply IX. 
+  bdestruct (i =? length J).
+  - remember (envkv_weaken J' J K1 vk h2).
+    remember (envkv_cons (J' ++ J) k VT1 h2).
+    assert (K = K1). subst i. replace (k :: J' ++ K1 :: J) with ((k :: J') ++ K1 :: J) in IX'.
+    rewrite indexr_hit in IX'. inversion IX'. eauto. eauto. 
+    subst i K. erewrite envkv_weaken_hit. erewrite envkv_cons_skip.
+    2: { rewrite app_length. simpl. lia. }
+    Unshelve. 2: rewrite indexr_hit; eauto.
+    subst e.
+    erewrite envkv_weaken_hit. eauto.
+  - bdestruct (i <? length J).
+    erewrite envkv_cons_skip. erewrite envkv_weaken_lt.
+    erewrite envkv_weaken_lt. erewrite envkv_cons_skip.
+    eauto.
+    rewrite app_length. lia. eauto. eauto. rewrite app_length. simpl. lia.
+    assert (i > length J). lia.
+    assert (i-1 >= length J). lia.
+    assert (i = i-1+1). lia. 
+    bdestruct (i =? length (J'++K1::J)).
+    + subst i.    
+      assert (K = k). rewrite indexr_head in IX'. inversion IX'. eauto.
+      subst K. 
+      erewrite envkv_cons_head. erewrite envkv_weaken_ge. erewrite envkv_cons_head. eauto.
+      rewrite app_length. lia. rewrite app_length, app_length. simpl. lia.
+    + erewrite envkv_weaken_ge. 3: eauto. 2: lia.
+      erewrite envkv_cons_skip. 2: { eapply indexr_var_some' in IX'. simpl in *. rewrite app_length in *. simpl in *. lia. }
+      erewrite envkv_weaken_ge. 3: eauto. 2: lia.
+      erewrite envkv_cons_skip. eauto. eapply indexr_var_some' in IX'. simpl in *. rewrite app_length in *. simpl in *. lia.
+      Unshelve.
+      rewrite indexr_skip in IX'. eauto.
+      rewrite app_length. simpl. lia.
+      rewrite indexr_skips. rewrite indexr_skip, indexr_skips, indexr_skip in IX'; eauto.
+      simpl. eauto. rewrite app_length. simpl. lia. eauto.
+      rewrite indexr_skips. rewrite indexr_skip, indexr_skips, indexr_skip in IX'; eauto.
+      simpl. eauto. rewrite app_length. simpl. lia. eauto.
+      replace (((k :: J') ++ J)) with (k::J'++J). rewrite indexr_head in *. eauto. eauto.
+      eapply indexr_var_some' in IX'. rewrite indexr_skips'.
+      replace (k :: J' ++ K1 :: J) with ((k::J') ++ (K1::J)) in IX. 
+      rewrite indexr_skips' in IX. replace (i - length (K1::J)) with (i-1-length J) in IX. eauto.
+      simpl. lia. simpl. lia. eauto. eauto.
+      rewrite indexr_skip in IX'. eauto. eauto.
+      rewrite indexr_skip in IX'. rewrite indexr_skips' in IX'. rewrite indexr_skips'.
+      replace (i - length (K1::J)) with (i-1-length J) in IX'. eauto.
+      simpl. lia. eauto. simpl. eauto. eauto. 
+Qed.
 
+Lemma envkv_weaken_eq_extend: forall J K1 vk h2,
+    envkv_weaken [] J K1 vk h2 = envkv_cons J K1 vk h2.
+Proof.
+  intros.
+  eapply functional_extensionality_dep. intros i.
+  eapply functional_extensionality_dep. intros K.
+  eapply functional_extensionality_dep. intros IX.
+  simpl in *.
+  assert ((if i =? length J then Some K1 else indexr i J) = Some K). eapply IX. 
+  bdestruct (i =? length J).
+  - inversion H. subst. 
+    rewrite envkv_cons_head, envkv_weaken_hit. eauto.
+  - eapply indexr_var_some' in H as LT. 
+    erewrite envkv_cons_skip, envkv_weaken_lt; eauto.
+    Unshelve. simpl. eauto. 
+Qed.
 
 Lemma valt_weaken: forall T J' J K1 K vk (h1: has_kind (J'++J) T K) h2,
     val_type h1 h2 =
@@ -718,8 +872,7 @@ Proof.
   intros.
   specialize valt_weaken with (J':=[]). simpl. intros. unfold haskind_extend.
   replace (envkv_cons J K1 vk h2) with (envkv_weaken [] J K1 vk h2).
-  erewrite H. 2: 
-  eapply envkv_weaken_eq_extend. split; eauto. 
+  erewrite H. 2: eapply envkv_weaken_eq_extend. split; eauto. 
 Qed.
 
 

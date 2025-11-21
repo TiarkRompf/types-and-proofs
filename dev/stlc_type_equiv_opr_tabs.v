@@ -911,10 +911,53 @@ Proof.
   simpl. eauto. 
 Defined.
 
-Lemma valt_subst: forall J K1 T1K WFJ T2' T1' (h1f : has_kind (K1 :: J) T2' KTpe) HK1 vy,
-  val_type h1f (envkv_cons J K1 T1K WFJ) vy <-> 
-  val_type (hask_subst J T2' T1' K1 h1f HK1) WFJ vy.
+
+Lemma aux1b: forall J' J K1 T1K WFJ i e0 e1 vy,
+    i <> length J ->
+    (envkv_weaken J' J K1 T1K WFJ) i KTpe e0 vy = WFJ (if i <? length J then i else i - 1) KTpe e1 vy.
 Proof.
+  intros.
+  bdestruct (i <? length J).
+  erewrite envkv_weaken_lt. eauto. eauto.
+  erewrite envkv_weaken_ge. eauto. lia. lia. 
+Qed.
+
+Lemma valt_subst: forall T2 J' J K1 T1K WFJ T1 (h1f : has_kind (J'++K1 :: J) T2 KTpe) HK1 vy,
+    T1K = val_type (haskind_extend_mult J' T1 J K1 HK1) WFJ ->
+    val_type h1f (envkv_weaken J' J K1 T1K WFJ) vy = 
+    val_type (hask_subst T2 J' J T1 K1 KTpe h1f HK1) WFJ vy.
+Proof.
+  intros T2. induction T2; intros; inversion h1f.
+  - dependent destruction h1f.
+    simpl. eauto.
+  - dependent destruction h1f.
+    remember (k_var (J' ++ K1 :: J) i KTpe e) as hx1.
+    remember (hask_subst (TVar i) J' J T1 K1 KTpe hx1 HK1) as hx1'.
+    remember (envkv_weaken J' J K1 T1K WFJ) as h2'.
+    dependent destruction hx1. simpl.
+
+    simpl in *. remember (Nat.eq_dec i (length J)).
+    destruct s.
+    + subst i.
+      simpl in *. 
+      assert (K1 = KTpe). eapply xxx3; eauto.
+      subst K1.
+      remember (haskind_extend_mult J' T1 J KTpe).
+      remember (xxx3 J' J KTpe KTpe x e1).
+      remember (xxx4 J T1 KTpe KTpe HK1). 
+      compute in Heqhx1'.
+      assert (h0 (e2 e0) = HK1). {
+        subst h0. compute. remember (e2 e0).
+        dependent destruction e3. eauto.
+      }
+      rewrite H0 in Heqhx1'. subst h2' h hx1'.
+      subst x. rewrite envkv_weaken_hit.
+      subst T1K. eauto. 
+
+    + dependent destruction hx1'.
+      simpl. subst h2'. eapply aux1b. eauto. 
+
+  - admit.
 Admitted.
 
 

@@ -961,6 +961,24 @@ Proof.
 Admitted.
 
 
+Lemma valt_subst1: forall T2 J K1 T1K WFJ T1 (h1f : has_kind (K1 :: J) T2 KTpe) HK1 vy,
+  T1K = val_type HK1 WFJ ->
+  val_type h1f (envkv_cons J K1 T1K WFJ) vy = 
+  val_type (hask_subst1 J T2 T1 K1 h1f HK1) WFJ vy.
+Proof.
+  intros.
+  specialize valt_subst with (J':=[]). simpl. intros. unfold hask_subst1.
+  unfold eq_rect. remember (splice_zero T1 (length J)).
+  clear Heqe. 
+  dependent destruction e. 
+  replace (envkv_cons J K1 T1K WFJ) with (envkv_weaken [] J K1 T1K WFJ).
+  erewrite H0 with (T1:=T1) (HK1:=HK1). eauto. 2: eapply envkv_weaken_eq_extend.
+  unfold eq_rec_r, eq_rec, eq_rect.
+  remember (eq_sym (splice_zero T1 (length J))). clear Heqe. dependent destruction e.
+  eauto. 
+Qed.
+
+
 (* ---------- env extension lemmas  ---------- *)
 
 Lemma envt_empty: forall W,
@@ -1113,12 +1131,12 @@ Proof.
   remember (val_type HX WFJ) as T1K. 
   edestruct (VF T1K) as (vy & STY & VY).
   exists vy. 
-  exists (hask_subst _ _ _ _ h1f HX).
+  exists (hask_subst1 _ _ _ _ h1f HX).
   split.
   - destruct STF as (n1 & STF).
     destruct STY as (n2 & STY). 
     exists (1+n1+n2). intros. destruct n. lia. simpl. rewrite STF, STY. 2,3: lia. eauto.
-  - eapply valt_subst. eauto. 
+  - erewrite <-valt_subst1. eauto. eauto.
 Qed.
   
 

@@ -142,7 +142,7 @@ end.
 Fixpoint subst (t: ty) (i: nat) (u:ty): ty := 
   match t with 
   | TBool         => TBool
-  | TVar x        => if i =? x then u else if i <? x then (TVar (pred x)) else (TVar x)   
+  | TVar x        => if Nat.eq_dec x i then u else TVar (if x <? i then x else x-1)
   | TFun t1 t2    => TFun (subst t1 i u) (subst t2 i u)
   | TAll k t      => TAll k (subst t i (splice i 1 u)) 
   | TTAbs k t     => TTAbs k (subst t i (splice i 1 u)) 
@@ -859,12 +859,57 @@ Qed.
 
 (* substitution *)
 
-Lemma hask_subst: forall J T2 T1 K1,
+Lemma xxx4: forall J T1 K1 K2,
+  has_kind J T1 K1 ->
+  K1 = K2 ->
+  has_kind J T1 K2.
+Proof.
+  intros. 
+  congruence.
+Defined.
+
+
+Lemma xxx3: forall (J' J: kenv) K1 K2 i,
+  i = length J ->
+  indexr i (J' ++ K1 :: J) = Some K2 ->
+  K1 = K2.
+Proof.
+  intros. subst i.
+  erewrite indexr_skips in H0.
+  erewrite indexr_head in H0.
+  congruence.
+  simpl. eauto.
+Defined.
+
+
+Fixpoint hask_subst T2: forall J' J T1 K1 K2,
+    has_kind (J' ++ K1 :: J) T2 K2 ->
+    has_kind J T1 K1 ->
+    has_kind (J'++J) (subst T2 (length J) (splice (length J) (length J') T1)) K2.
+Proof.
+  destruct T2; intros; inversion H; subst; simpl in *.
+  - eapply k_bool.
+  - destruct (Nat.eq_dec i (length J)) as [Heq | Hneq].
+    + eapply haskind_extend_mult. eapply xxx4. eauto. eapply xxx3; eauto.
+    + eapply k_var.
+      rewrite indexr_splice2 in H2. eapply H2. eauto.
+  - eapply k_fun. eauto. eauto.
+  - eapply k_all. rewrite splice_acc.
+    eapply hask_subst with (J':=k::J'). eauto. eauto.
+  - eapply k_tabs. rewrite splice_acc.
+    eapply hask_subst with (J':=k::J'). eauto. eauto.
+  - eapply k_tapp. eauto. eauto. 
+Defined.
+
+Lemma hask_subst1: forall J T2 T1 K1,
     has_kind (K1 :: J) T2 KTpe ->
     has_kind J T1 K1 ->
     has_kind J (subst T2 (length J) T1) KTpe.
 Proof.
-Admitted.
+  intros. eapply hask_subst with (J':=[]) in H0.
+  simpl in H0. rewrite splice_zero in H0. eauto.
+  simpl. eauto. 
+Defined.
 
 Lemma valt_subst: forall J K1 T1K WFJ T2' T1' (h1f : has_kind (K1 :: J) T2' KTpe) HK1 vy,
   val_type h1f (envkv_cons J K1 T1K WFJ) vy <-> 

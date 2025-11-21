@@ -613,6 +613,16 @@ Proof.
   intros. eapply haskind_weaken1 with (J':=[]). eauto. 
 Defined.
 
+Fixpoint haskind_extend_mult J': forall T J K,
+    has_kind J T K ->
+    has_kind (J'++ J) (splice (length J) (length J') T) K.
+Proof.
+  destruct J'; intros; simpl in *.
+  - rewrite splice_zero. eapply H.
+  - eapply haskind_extend_mult in H. eapply haskind_extend in H.
+    rewrite app_length in H. rewrite splice_acc' in H. eapply H. 
+Defined.
+
 
 Lemma aux0: forall i i' J K
   (eq: i = i')

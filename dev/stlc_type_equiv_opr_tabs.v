@@ -14,7 +14,7 @@ TODO:
 
 (X) weakening for has_kind, val_type
 
-- substitution for has_kind, val_type
+(X) substitution for ~has_kind,~ val_type
 
 - bring back type equiv judgment and
   proper conversion rule (how: need binary LR?
@@ -922,17 +922,49 @@ Proof.
   erewrite envkv_weaken_ge. eauto. lia. lia. 
 Qed.
 
-Lemma valt_subst: forall T2 J' J K1 T1K WFJ T1 (h1f : has_kind (J'++K1 :: J) T2 KTpe) HK1 vy,
+Lemma aux1b': forall J' J K1 T1K WFJ i e0 e1,
+    i <> length J ->
+    (envkv_weaken J' J K1 T1K WFJ) i KTpe e0 = WFJ (if i <? length J then i else i - 1) KTpe e1.
+Proof.
+  intros.
+  bdestruct (i <? length J).
+  erewrite envkv_weaken_lt. eauto. eauto.
+  erewrite envkv_weaken_ge. eauto. lia. lia. 
+Qed.
+
+Lemma aux1b'': forall J' J K1 K T1K WFJ i e0 e1,
+    i <> length J ->
+    (envkv_weaken J' J K1 T1K WFJ) i K e0 = WFJ (if i <? length J then i else i - 1) K e1.
+Proof.
+  intros.
+  bdestruct (i <? length J).
+  erewrite envkv_weaken_lt. eauto. eauto.
+  erewrite envkv_weaken_ge. eauto. lia. lia. 
+Qed.
+
+Lemma valt_extend': forall T J K1 K vk (h1: has_kind J T K) h2,
+    val_type h1 h2 =
+    val_type (haskind_extend T J K K1 h1)
+    (envkv_cons J K1 vk h2).
+Proof.
+  intros.
+  specialize valt_weaken with (J':=[]). simpl. intros. unfold haskind_extend.
+  replace (envkv_cons J K1 vk h2) with (envkv_weaken [] J K1 vk h2).
+  erewrite H. 2: eapply envkv_weaken_eq_extend. split; eauto. 
+Qed.
+
+
+Lemma valt_subst: forall T2 J' J K1 K2 T1K WFJ T1 (h1f : has_kind (J'++K1 :: J) T2 K2) HK1,
     T1K = val_type (haskind_extend_mult J' T1 J K1 HK1) WFJ ->
-    val_type h1f (envkv_weaken J' J K1 T1K WFJ) vy = 
-    val_type (hask_subst T2 J' J T1 K1 KTpe h1f HK1) WFJ vy.
+    val_type h1f (envkv_weaken J' J K1 T1K WFJ) = 
+    val_type (hask_subst T2 J' J T1 K1 K2 h1f HK1) WFJ.
 Proof.
   intros T2. induction T2; intros; inversion h1f.
   - dependent destruction h1f.
     simpl. eauto.
   - dependent destruction h1f.
-    remember (k_var (J' ++ K1 :: J) i KTpe e) as hx1.
-    remember (hask_subst (TVar i) J' J T1 K1 KTpe hx1 HK1) as hx1'.
+    remember (k_var (J' ++ K1 :: J) i K e) as hx1.
+    remember (hask_subst (TVar i) J' J T1 K1 K hx1 HK1) as hx1'.
     remember (envkv_weaken J' J K1 T1K WFJ) as h2'.
     dependent destruction hx1. simpl.
 
@@ -940,11 +972,11 @@ Proof.
     destruct s.
     + subst i.
       simpl in *. 
-      assert (K1 = KTpe). eapply xxx3; eauto.
+      assert (K1 = K). eapply xxx3; eauto.
       subst K1.
-      remember (haskind_extend_mult J' T1 J KTpe).
-      remember (xxx3 J' J KTpe KTpe x e1).
-      remember (xxx4 J T1 KTpe KTpe HK1). 
+      remember (haskind_extend_mult J' T1 J K).
+      remember (xxx3 J' J K K x e1).
+      remember (xxx4 J T1 K K HK1). 
       compute in Heqhx1'.
       assert (h0 (e2 e0) = HK1). {
         subst h0. compute. remember (e2 e0).
@@ -955,10 +987,41 @@ Proof.
       subst T1K. eauto. 
 
     + dependent destruction hx1'.
-      simpl. subst h2'. eapply aux1b. eauto. 
+      simpl. subst h2'. eapply aux1b''. eauto. 
 
-  - admit.
-Admitted.
+  - (*TFun*) dependent destruction h1f. simpl.
+    assert (H21: val_type h1f1 (envkv_weaken J' J K1 T1K WFJ) = val_type (hask_subst T2_1 J' J T1 K1 KTpe h1f1 HK1) WFJ). apply IHT2_1. auto. rewrite H21.
+    assert (H22: val_type h1f2 (envkv_weaken J' J K1 T1K WFJ) = val_type (hask_subst T2_2 J' J T1 K1 KTpe h1f2 HK1) WFJ). apply IHT2_2. auto. rewrite H22. auto.
+  - (*TAll*) dependent destruction h1f. simpl.
+    assert (HVT: forall VT1, val_type (haskind_extend_mult (k :: J') T1 J K1 HK1) (envkv_cons (J' ++ J) k VT1 WFJ) = val_type (haskind_extend_mult J' T1 J K1 HK1) WFJ). { intros.
+      simpl. elim_eq_rect. simpl. elim_eq_rect. simpl.
+      rewrite <- valt_extend'. reflexivity.
+    } 
+    assert (HV: forall VT1, val_type h1f (envkv_cons (J' ++ K1 :: J) k VT1 (envkv_weaken J' J K1 T1K WFJ)) = 
+      val_type (eq_rec_r (fun t : ty => has_kind (k :: J' ++ J) (subst T2 (length J) t) KTpe) (hask_subst T2 (k :: J') J T1 K1 KTpe h1f HK1) (splice_acc T1 (length J) (length J') 1))
+      (envkv_cons (J' ++ J) k VT1 WFJ)). { intros.
+      rewrite splice_acc. rewrite aux2.  
+      specialize (IHT2 (k :: J') J K1 KTpe T1K (envkv_cons (J' ++ J) k VT1 WFJ) T1 h1f HK1).
+      specialize (HVT VT1). rewrite <- HVT in H.
+      specialize (IHT2 H). auto.
+    }
+    eapply functional_extensionality in HV. rewrite HV. auto.
+  - (*TTAbs*) dependent destruction h1f. remember (k_tabs (J' ++ K1 :: J) k T2 K2 h1f) as h1f'.
+    dependent destruction h1f'. simpl. rewrite splice_acc.
+    apply functional_extensionality. intro vk. 
+    rewrite aux2. 
+    assert (HT1K: val_type (haskind_extend_mult (k :: J') T1 J K1 HK1) (envkv_cons (J' ++ J) k vk WFJ) = val_type (haskind_extend_mult J' T1 J K1 HK1) WFJ). { intros.
+      simpl. elim_eq_rect. simpl. elim_eq_rect. simpl.
+      rewrite <- valt_extend'. reflexivity.
+    } rewrite <- HT1K in H.
+    specialize (IHT2 (k :: J')) with (h1f := h1f') (WFJ := (envkv_cons (J' ++ J) k vk WFJ)) (T1K := T1K). specialize (IHT2 T1 HK1 H). 
+    replace (val_type h1f' (envkv_weaken (k :: J') J K1 T1K (envkv_cons (J' ++ J) k vk WFJ))) with (val_type (hask_subst T2 (k :: J') J T1 K1 K2 h1f' HK1) (envkv_cons (J' ++ J) k vk WFJ)). (*using IHT2*)
+    auto.
+  - (*TTApp*) dependent destruction h1f. simpl.
+    specialize (IHT2_2) with (h1f := h1f2). specialize (IHT2_2 T1K WFJ T1 HK1 H). rewrite IHT2_2.
+    remember ((val_type (hask_subst T2_2 J' J T1 K1 K0 h1f2 HK1) WFJ)) as VT2.
+    specialize (IHT2_1) with (h1f := h1f1). specialize (IHT2_1 T1K WFJ T1 HK1 H). rewrite IHT2_1. auto. 
+Qed.
 
 
 Lemma valt_subst1: forall T2 J K1 T1K WFJ T1 (h1f : has_kind (K1 :: J) T2 KTpe) HK1 vy,

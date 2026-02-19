@@ -56,6 +56,7 @@ Module STLC.
 Definition id := nat.
 
 Inductive ty : Type :=
+  | TAny   : ty
   | TBool  : ty
   | TVar   : id -> ty
   | TFun   : ty -> ty -> ty
@@ -93,6 +94,7 @@ Definition kenv := list (unit). (* could just be a nat *)
 
 Fixpoint closed T n :=
   match T with
+  | TAny => True
   | TBool => True
   | TVar x => x < n
   | TFun T3 T4 => closed T3 n /\ closed T4 n
@@ -103,6 +105,7 @@ Fixpoint closed T n :=
 
 Fixpoint splice n l (T : ty) {struct T} : ty :=
   match T with
+  | TAny => TAny
   | TBool => TBool
   | TVar x => TVar (if x <? n then x else l+x)
   | TFun T3 T4 => TFun (splice n l T3) (splice n l T4)
@@ -113,6 +116,7 @@ Fixpoint splice n l (T : ty) {struct T} : ty :=
 
 Fixpoint subst T1 n T2 {struct T1} : ty :=
   match T1 with
+  | TAny => TAny
   | TBool => TBool
   | TVar x => if x =? n then T2 else if x <? n then TVar x else TVar (x-1)
   | TFun T3 T4 => TFun (subst T3 n T2) (subst T4 n T2)
@@ -123,6 +127,17 @@ Fixpoint subst T1 n T2 {struct T1} : ty :=
 
 
 (* ---------- syntactic typing rules ---------- *)
+
+Inductive stp : ty -> ty -> Prop :=
+| s_any: forall T,
+    stp T TAny
+| s_bool:
+    stp TBool TBool
+| s_fun: forall T1 T2 T3 T4,
+    stp T3 T1 ->
+    stp T2 T4 ->
+    stp (TFun T1 T2) (TFun T3 T4)
+.
 
 Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
 | t_true: forall env J,
@@ -147,6 +162,11 @@ Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
 | t_tabs: forall env J t T2,
     has_type (map (splice (length J) 1) env) (tt::J) t T2 ->
     has_type env J (ttabs t) (TAll T2)
+| t_sub: forall env J t T1 T2,
+    has_type env J t T1 ->
+    stp T1 T2 ->
+    closed T2 (length J) ->
+    has_type env J t T2
 (* non-standard rules: *)
 | t_app_dom_range: forall env J f t TF,
     has_type env J f TF ->
@@ -215,6 +235,8 @@ Definition vtype := vl -> sel -> Prop.
 
 Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
   match v, T, i with
+  | v, TAny, sl_root =>
+      True
   | vbool b, TBool, sl_root =>  
       True
   | v, TVar x, i =>
@@ -260,6 +282,11 @@ Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
       exists v,
         indexr x H = Some v /\
         val_type V v T sl_root.
+
+Definition sem_stp T1 T2 :=
+  forall V v,
+    val_type V v T1 sl_root ->
+    val_type V v T2 sl_root.
 
 Definition sem_type G J t T :=
   forall H V,
@@ -392,6 +419,7 @@ Lemma valt_weaken: forall T V V1 vt v k,
 Proof.
   intros T. induction T; intros. 
   - destruct v; simpl in *; split; eauto.
+  - destruct v; simpl in *; split; eauto.
   - simpl in *. bdestruct (i <? length V); eauto; split; intros; eauto.
     + erewrite <-indexr_insert_lt. eauto. eauto. 
     + erewrite <-indexr_insert_lt in H0. eauto. eauto. 
@@ -467,6 +495,7 @@ Lemma valt_subst_gen: forall T2 T1 v vt V V1 k,
       val_type (V1++V) v (subst T2 (length V) (splice (length V) (length V1) T1)) k.
 Proof.
   intros T2. induction T2; intros. 
+  - destruct v; simpl in *; split; eauto.
   - destruct v; simpl in *; split; eauto.
   - simpl in *. bdestruct (i =? length V); eauto; split; intros; eauto.
     (* Todo: annoying duplication due to destructing v *)
@@ -805,7 +834,54 @@ Proof.
     eexists. split. eauto. eauto. 
 Qed.
 
-                                                       
+(* ---------- LR subtyping compatibility lemmas  ---------- *)
+
+Lemma sem_stp_any: forall T,
+  sem_stp T TAny.
+Proof.
+  intros ? ? ? V1. destruct v; simpl; eauto.
+Qed.
+
+Lemma sem_stp_bool:
+  sem_stp TBool TBool.
+Proof.
+  intros ? ? V1. eauto.
+Qed.
+
+Lemma sem_stp_fun: forall T1 T2 T3 T4,
+  sem_stp T3 T1 ->
+  sem_stp T2 T4 ->
+  sem_stp (TFun T1 T2) (TFun T3 T4).
+Proof.
+  intros ? ? ? ? ST31 ST24. intros ? ? V1.
+  destruct v; simpl in *; eauto; intros.
+  destruct (V1 vx) as (vy & EY & VY).
+  eapply ST31. eauto.
+  eexists vy. split. eauto.
+  eapply ST24. eauto.
+Qed.
+
+Theorem stp_fundamental: forall T1 T2,
+    stp T1 T2 ->
+    sem_stp T1 T2.
+Proof.
+  intros. induction H.
+  - eapply sem_stp_any; eauto. 
+  - eapply sem_stp_bool; eauto. 
+  - eapply sem_stp_fun; eauto.
+Qed.
+
+
+Lemma sem_sub: forall G J t T1 T2,
+    sem_type G J t T1 ->
+    sem_stp T1 T2 ->
+    sem_type G J t T2.
+Proof.
+  intros ? ? ? ? ? H1 ST12. intros E V WFE.
+  destruct (H1 E V) as (vy & ? & VY). eauto.
+  eexists. split. eauto. eapply ST12. eauto.
+Qed.
+
 (* ---------- LR fundamental property  ---------- *)
 
 Theorem fundamental: forall G J t T,
@@ -821,6 +897,7 @@ Proof.
   - eapply sem_abs; eauto.
   - eapply sem_tapp; eauto. 
   - eapply sem_tabs; eauto.
+  - eapply sem_sub; eauto. eapply stp_fundamental; eauto. 
   - eapply sem_app_dom_range; eauto.
   - eapply sem_stp_dom; eauto.
   - eapply sem_stp_range; eauto.
@@ -856,7 +933,7 @@ Proof.
   - eapply closedt_subst. eauto. eauto. eauto. 
   - eapply IHhas_type. intros. eapply indexr_map' in H1.
     destruct H1 as (?&?&?). subst.
-    eapply closedt_splice. eauto. 
+    eapply closedt_splice. eauto.
   - eapply IHhas_type. eauto. 
 Qed.
 

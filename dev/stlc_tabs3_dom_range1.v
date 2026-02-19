@@ -885,4 +885,40 @@ Proof.
 Qed.
 
 
+(* polymorphic eta expansion with dom and range: [F:*](f: F)(x: dom(F)) -> range(F)  *)
+
+Definition idFun := tabs (tvar 0).
+
+Definition etaFun := ttabs (tabs (tabs (tapp (tvar 0) (tvar 1)))).
+
+Definition etaFunType' := TFun (TVar 0) (TFun (TDom (TVar 0)) (TRange (TVar 0))).
+
+Definition etaFunType := TAll etaFunType'.
+
+Lemma etaHasType:
+  has_type [] [] etaFun etaFunType.
+Proof.
+  eapply t_tabs. eapply t_abs. eapply t_abs.
+  eapply t_app_dom_range. eapply t_var. simpl. eauto. eapply t_var. simpl. eauto. 
+  simpl. eauto. simpl. eauto. 
+Qed.
+
+Lemma etaAppliedHasType:
+  has_type [] [] (ttapp etaFun (TFun TBool TBool)) (subst etaFunType' 0 (TFun TBool TBool)).
+Proof.
+  eapply t_tapp. eapply etaHasType. simpl. eauto. 
+Qed.
+
+Lemma etaWithArgHasType:
+  has_type [] [] (tapp (tapp (ttapp etaFun (TFun TBool TBool)) idFun) ttrue) TBool.
+Proof.
+  eapply t_stp_range. 
+  eapply t_app. 2: { eapply t_stp_dom with (T2:=TBool). eapply t_true. simpl. eauto. }
+  eapply t_app. 2: { eapply t_abs with (T1:=TBool). eapply t_var. simpl. eauto. simpl. eauto. }
+  specialize etaAppliedHasType. intros. simpl in H. eauto. 
+Qed.
+
+
+
+
 End STLC.

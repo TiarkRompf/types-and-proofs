@@ -123,20 +123,21 @@ Fixpoint subst T1 n T2 {struct T1} : ty :=
   | TAll T4 => TAll (subst T4 n (splice n 1 T2))
   | TDom T4 => TDom (subst T4 n T2)
   | TRange T4 => TRange (subst T4 n T2)
+(*  | TImg T3 T4 => TImg (subst T3 n T2) (subst T4 n T2)*)
   end.
 
 
 (* ---------- syntactic typing rules ---------- *)
 
-Inductive stp : ty -> ty -> Prop :=
-| s_any: forall T,
-    stp T TAny
-| s_bool:
-    stp TBool TBool
-| s_fun: forall T1 T2 T3 T4,
-    stp T3 T1 ->
-    stp T2 T4 ->
-    stp (TFun T1 T2) (TFun T3 T4)
+Inductive stp : kenv -> ty -> ty -> Prop :=
+| s_any: forall J T,
+    stp J T TAny
+| s_bool: forall J,
+    stp J TBool TBool
+| s_fun: forall J T1 T2 T3 T4,
+    stp J T3 T1 ->
+    stp J T2 T4 ->
+    stp J (TFun T1 T2) (TFun T3 T4)
 .
 
 Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
@@ -164,7 +165,7 @@ Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
     has_type env J (ttabs t) (TAll T2)
 | t_sub: forall env J t T1 T2,
     has_type env J t T1 ->
-    stp T1 T2 ->
+    stp J T1 T2 ->
     closed T2 (length J) ->
     has_type env J t T2
 (* non-standard rules: *)
@@ -283,8 +284,9 @@ Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
         indexr x H = Some v /\
         val_type V v T sl_root.
 
-Definition sem_stp T1 T2 :=
+Definition sem_stp (J: kenv) T1 T2 :=
   forall V v,
+    length V = length J ->
     val_type V v T1 sl_root ->
     val_type V v T2 sl_root.
 
@@ -836,34 +838,34 @@ Qed.
 
 (* ---------- LR subtyping compatibility lemmas  ---------- *)
 
-Lemma sem_stp_any: forall T,
-  sem_stp T TAny.
+Lemma sem_stp_any: forall J T,
+  sem_stp J T TAny.
 Proof.
-  intros ? ? ? V1. destruct v; simpl; eauto.
+  intros ? ? ? ? ? V1. destruct v; simpl; eauto.
 Qed.
 
-Lemma sem_stp_bool:
-  sem_stp TBool TBool.
+Lemma sem_stp_bool: forall J,
+  sem_stp J TBool TBool.
 Proof.
   intros ? ? V1. eauto.
 Qed.
 
-Lemma sem_stp_fun: forall T1 T2 T3 T4,
-  sem_stp T3 T1 ->
-  sem_stp T2 T4 ->
-  sem_stp (TFun T1 T2) (TFun T3 T4).
+Lemma sem_stp_fun: forall J T1 T2 T3 T4,
+  sem_stp J T3 T1 ->
+  sem_stp J T2 T4 ->
+  sem_stp J (TFun T1 T2) (TFun T3 T4).
 Proof.
-  intros ? ? ? ? ST31 ST24. intros ? ? V1.
+  intros ? ? ? ? ? ST31 ST24. intros ? ? ? V1.
   destruct v; simpl in *; eauto; intros.
   destruct (V1 vx) as (vy & EY & VY).
-  eapply ST31. eauto.
+  eapply ST31; eauto.
   eexists vy. split. eauto.
-  eapply ST24. eauto.
+  eapply ST24; eauto.
 Qed.
 
-Theorem stp_fundamental: forall T1 T2,
-    stp T1 T2 ->
-    sem_stp T1 T2.
+Theorem stp_fundamental: forall J T1 T2,
+    stp J T1 T2 ->
+    sem_stp J T1 T2.
 Proof.
   intros. induction H.
   - eapply sem_stp_any; eauto. 
@@ -874,12 +876,12 @@ Qed.
 
 Lemma sem_sub: forall G J t T1 T2,
     sem_type G J t T1 ->
-    sem_stp T1 T2 ->
+    sem_stp J T1 T2 ->
     sem_type G J t T2.
 Proof.
   intros ? ? ? ? ? H1 ST12. intros E V WFE.
   destruct (H1 E V) as (vy & ? & VY). eauto.
-  eexists. split. eauto. eapply ST12. eauto.
+  eexists. split. eauto. eapply ST12. eapply WFE. eauto. 
 Qed.
 
 (* ---------- LR fundamental property  ---------- *)

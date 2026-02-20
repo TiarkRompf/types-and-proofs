@@ -330,6 +330,159 @@ Proof.
 Qed.
 
 
+(* ---------- LR symmetry, transitivity, etc  ---------- *)
+
+Lemma tevaln_det: forall G e v1 v2,
+    tevaln G e v1 ->
+    tevaln G e v2 ->
+    v1 = v2.
+Proof.
+  intros. destruct H, H0.
+  assert (1+x+x0 > x). lia.
+  assert (1+x+x0 > x0). lia.
+  eapply H in H1. eapply H0 in H2.
+  congruence. 
+Qed.
+
+Lemma valt_symm: forall T v1 v2,
+    val_type v1 v2 T ->
+    val_type v2 v1 T.
+Proof.
+  intros T. induction T; intros.
+  - destruct v1,v2; simpl in *; try contradiction. eauto.
+  - destruct v1,v2; simpl in *; try contradiction. eauto.
+    intros. eapply IHT1 in H0. eapply H in H0.
+    destruct H0 as (?&?&?&?&?).
+    eexists _,_. split. eauto. split. eauto.
+    eapply IHT2. eauto. 
+Qed.
+
+Lemma valt_trans: forall T v1 v2 v3,
+    val_type v1 v2 T ->
+    val_type v2 v3 T ->
+    val_type v1 v3 T.
+Proof.
+  intros T. induction T; intros.
+  - destruct v1,v2,v3; simpl in *; try contradiction. eauto.
+  - destruct v1,v2,v3; simpl in *; try contradiction.
+    intros vx1 vx3 VT13.
+    assert (val_type vx1 vx1 T1) as VT11. {
+      eapply IHT1. eauto. eapply valt_symm. eauto. }
+    eapply H in VT11.
+    eapply H0 in VT13.
+    destruct VT13 as (vy1 & vy3 & TE1 & TE2A & VY13).
+    destruct VT11 as (vy1' & vy3' & TE1' & TE2B & VY13').
+    assert (vy1 = vy3'). eapply tevaln_det; eauto. subst vy3'.
+    eexists _, _. split. eauto. split. eauto.
+    eapply IHT2. eauto. eauto. 
+Qed.
+
+Lemma valt_regular: forall T v1 v2,
+    val_type v1 v2 T ->
+    val_type v1 v1 T /\ val_type v2 v2 T.
+Proof.
+  intros. split.
+  eapply valt_trans. eauto. eapply valt_symm; eauto.
+  eapply valt_trans. eapply valt_symm; eauto. eauto.
+Qed.
+
+Lemma expt_symm: forall T H1 H2 t1 t2,
+    exp_type H1 H2 t1 t2 T ->
+    exp_type H2 H1 t2 t1 T.
+Proof.
+  intros. destruct H as (?&?&?&?&?).
+  eexists _,_. split. 2: split.
+  eauto. eauto. eapply valt_symm; eauto. 
+Qed.
+
+Lemma expt_trans: forall T H1 H2 H3 t1 t2 t3,
+    exp_type H1 H2 t1 t2 T ->
+    exp_type H2 H3 t2 t3 T ->
+    exp_type H1 H3 t1 t3 T.
+Proof.
+  intros.
+  destruct H as (?&?&?&?&?).
+  destruct H0 as (?&?&?&?&?).
+  assert (x0 = x1). eapply tevaln_det; eauto. subst x1.
+  eexists _,_. split. 2: split.
+  eauto. eauto. eapply valt_trans; eauto. 
+Qed.
+
+Lemma expt_regular: forall T H1 H2 t1 t2,
+    exp_type H1 H2 t1 t2 T ->
+    exp_type H1 H1 t1 t1 T /\ exp_type H2 H2 t2 t2 T.
+Proof.
+  intros. split.
+  eapply expt_trans. eauto. eapply expt_symm; eauto.
+  eapply expt_trans. eapply expt_symm; eauto. eauto.
+Qed.
+
+Lemma envt_symm: forall G H1 H2,
+    env_type H1 H2 G ->
+    env_type H2 H1 G.
+Proof.
+  intros. destruct H as (?&?&?).
+  split. 2: split. eauto. eauto.
+  intros. edestruct H3 as (?&?&?&?&?). eauto. 
+  eexists _,_. split. 2: split.
+  eauto. eauto. eapply valt_symm; eauto. 
+Qed.
+
+Lemma envt_trans: forall G H1 H2 H3,
+    env_type H1 H2 G ->
+    env_type H2 H3 G ->
+    env_type H1 H3 G.
+Proof.
+  intros.
+  destruct H as (?&?&?).
+  destruct H0 as (?&?&?).
+  split. 2: split. eauto. eauto.
+  intros.
+  edestruct H5 as (?&?&?&?&?). eauto.
+  edestruct H7 as (?&?&?&?&?). eauto.
+  assert (x1 = x2). congruence. subst x2. 
+  eexists _,_. split. 2: split.
+  eauto. eauto. eapply valt_trans; eauto. 
+Qed.
+
+Lemma envt_regular: forall G H1 H2,
+    env_type H1 H2 G ->
+    env_type H1 H1 G /\ env_type H2 H2 G.
+Proof.
+  intros. split.
+  eapply envt_trans. eauto. eapply envt_symm; eauto.
+  eapply envt_trans. eapply envt_symm; eauto. eauto.
+Qed.
+
+Lemma semt_symm: forall T G t1 t2,
+    sem_type G t1 t2 T ->
+    sem_type G t2 t1 T.
+Proof.
+  intros. intros ?? WFE.
+  eapply expt_symm. eapply H.
+  eapply envt_symm. eapply WFE.
+Qed.
+
+Lemma semt_trans: forall T G t1 t2 t3,
+    sem_type G t1 t2 T ->
+    sem_type G t2 t3 T ->
+    sem_type G t1 t3 T.
+Proof.
+  intros. intros ?? WFE.
+  eapply expt_trans. eapply H. 2: eapply H0.
+  eapply envt_trans. eauto. eapply envt_symm. eauto. eauto.
+Qed.
+
+Lemma semt_regular: forall T G t1 t2,
+    sem_type G t1 t2 T ->
+    sem_type G t1 t1 T /\ sem_type G t2 t2 T.
+Proof.
+  intros. split.
+  eapply semt_trans. eauto. eapply semt_symm; eauto.
+  eapply semt_trans. eapply semt_symm; eauto. eauto.
+Qed.
+
+
 (* ---------- LR contextual equivalence  ---------- *)
 
 (* Define typed contexts and prove that the binary logical

@@ -63,6 +63,7 @@ Inductive ty : Type :=
   | TAll   : ty -> ty
   | TDom   : ty -> ty
   | TRange : ty -> ty
+  | TImg   : ty -> ty -> ty
 .
 
 Inductive tm : Type :=
@@ -101,6 +102,7 @@ Fixpoint closed T n :=
   | TAll T4 => closed T4 (S n)
   | TDom T4 => closed T4 n
   | TRange T4 => closed T4 n
+  | TImg T3 T4 => closed T3 n /\ closed T4 n
   end.
 
 Fixpoint splice n l (T : ty) {struct T} : ty :=
@@ -112,6 +114,7 @@ Fixpoint splice n l (T : ty) {struct T} : ty :=
   | TAll T2   => TAll (splice n l T2)
   | TDom T2 => TDom (splice n l T2)
   | TRange T2 => TRange (splice n l T2)
+  | TImg T3 T4 => TImg (splice n l T3) (splice n l T4)
   end.
 
 Fixpoint subst T1 n T2 {struct T1} : ty :=
@@ -123,7 +126,7 @@ Fixpoint subst T1 n T2 {struct T1} : ty :=
   | TAll T4 => TAll (subst T4 n (splice n 1 T2))
   | TDom T4 => TDom (subst T4 n T2)
   | TRange T4 => TRange (subst T4 n T2)
-(*  | TImg T3 T4 => TImg (subst T3 n T2) (subst T4 n T2)*)
+  | TImg T3 T4 => TImg (subst T3 n T2) (subst T4 n T2)
   end.
 
 
@@ -180,6 +183,15 @@ Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
 | t_stp_range: forall env J t T1 T2,
     has_type env J t (TRange (TFun T1 T2)) ->
     has_type env J t T2
+(* preliminary rules for TImg: *)
+| t_app_dom_img: forall env J f t TF T1,
+    has_type env J f TF ->
+    has_type env J t T1 ->
+    stp J T1 (TDom TF) ->
+    has_type env J (tapp f t) (TImg TF T1)
+| t_stp_img: forall env J t T1 T1' T2,
+    has_type env J t (TImg (TFun T1 T2) T1') ->
+    has_type env J t (TRange (TFun T1 T2))
 .
 
 
@@ -262,6 +274,9 @@ Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
           val_type V vy TF (sl_range i)
   | v, TRange TF, i =>
       val_type V v TF (sl_range i)
+  | v, TImg TF T1, i =>
+      (* TODO: T1? *)
+      val_type V v TF (sl_range i)
   | v, TFun T1 T2, sl_dom k =>
       val_type V v T1 k
   | v, TFun T1 T2, sl_range k =>
@@ -317,7 +332,8 @@ Lemma closedt_extend: forall T1 n n1,
   intros T1. induction T1; simpl in *; eauto. 
   - lia. 
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
-  - intuition. eapply IHT1 in H. eauto. lia. 
+  - intuition. eapply IHT1 in H. eauto. lia.
+  - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
 Qed.
 
 Lemma closedt_splice: forall T1 n l n1,
@@ -327,7 +343,8 @@ Proof.
   intros T1. induction T1; intros; simpl in *; eauto.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
   - intuition.
-  - replace (S (l+n1)) with (l+(S n1)). intuition. lia. 
+  - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
+  - intuition. 
 Qed.
 
 Lemma closedt_subst: forall T2 T1 n n1,
@@ -343,6 +360,7 @@ Proof.
     simpl. lia. simpl. lia. 
   - intuition. 
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
+  - intuition.
 Qed.
 
 
@@ -360,7 +378,9 @@ Proof. induction e1; intros; simpl; intuition.
   + specialize (IHe1 a b c).
     rewrite IHe1. eauto.
   + specialize (IHe1 a b c).
-    rewrite IHe1. eauto. 
+    rewrite IHe1. eauto.
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. auto.
 Qed.
 
 Lemma splice_acc': forall e1 a b c,
@@ -379,6 +399,8 @@ Proof. induction e1; intros; simpl; intuition.
     rewrite IHe1. auto.
   + specialize (IHe1 a b c).
     rewrite IHe1. auto.
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. auto.
 Qed.
 
 Lemma splice_zero: forall e1 a,
@@ -389,6 +411,7 @@ Proof. intros. induction e1; simpl; intuition.
   + rewrite IHe1. auto.
   + rewrite IHe1. auto.
   + rewrite IHe1. auto.
+  + rewrite IHe1_1. rewrite IHe1_2. auto.
 Qed.
 
 
@@ -460,6 +483,7 @@ Proof.
       intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
       eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
   - destruct v; simpl in *; eapply IHT; eauto. 
+  - destruct v; simpl in *; eapply IHT1; eauto. 
 Qed.
 
 Lemma valt_shrink: forall V vt v T k,
@@ -572,6 +596,7 @@ Proof.
       intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
       eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
   - destruct v; simpl in *; eapply IHT2; eauto. 
+  - destruct v; simpl in *; eapply IHT2_1; eauto. 
 Qed.
 
 Lemma valt_subst: forall V vt v T1 T2 k,
@@ -681,6 +706,57 @@ Proof.
   - simpl. destruct vy; eauto.
 Qed.
 
+Lemma sem_app_dom_img: forall G J f t TF T1,
+    sem_type G J f TF ->
+    sem_type G J t T1 ->
+    sem_stp J T1 (TDom TF) ->
+    sem_type G J (tapp f t) (TImg TF T1).
+Proof.
+  intros ? ? ? ? ? ? HF HX STPF. intros E V WFE.
+  destruct (HF E V WFE) as (vf & STF & VF).
+  destruct (HX E V WFE) as (vx & STX & VX).
+
+  eapply STPF in VX. 2: eapply WFE. 
+  
+  destruct vx; simpl in VX. { (* XXX duplication! *)
+  destruct VX as (VX & VFF).
+  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
+  subst vf. 
+  
+  exists vy. split. 
+  - destruct STF as (n1 & STF).
+    destruct STX as (n2 & STX).
+    destruct STY as (n3 & STY).
+    exists (1+n1+n2+n3). intros. destruct n. lia.
+    simpl. rewrite STF, STX, STY. 2,3,4: lia.
+    eauto.
+  - simpl. destruct vy; eauto. } {
+  destruct VX as (VX & VFF).
+  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
+  subst vf. 
+  
+  exists vy. split. 
+  - destruct STF as (n1 & STF).
+    destruct STX as (n2 & STX).
+    destruct STY as (n3 & STY).
+    exists (1+n1+n2+n3). intros. destruct n. lia.
+    simpl. rewrite STF, STX, STY. 2,3,4: lia.
+    eauto.
+  - simpl. destruct vy; eauto. } {
+  destruct VX as (VX & VFF).
+  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
+  subst vf. 
+  
+  exists vy. split. 
+  - destruct STF as (n1 & STF).
+    destruct STX as (n2 & STX).
+    destruct STY as (n3 & STY).
+    exists (1+n1+n2+n3). intros. destruct n. lia.
+    simpl. rewrite STF, STX, STY. 2,3,4: lia.
+    eauto.
+  - simpl. destruct vy; eauto. }
+Qed.
+
 Lemma sem_app_dom_range: forall G J f t TF,
     sem_type G J f TF ->
     sem_type G J t (TDom TF) ->
@@ -762,6 +838,16 @@ Lemma sem_stp_range: forall G J t T1 T2,
     sem_type G J t T2.
 Proof.
   intros ? ? ? ? ? HX. intros E V WFE.
+  destruct (HX E V WFE) as (vx & STX & VX).
+  exists vx. split. eauto.
+  destruct vx; eapply VX.
+Qed.
+
+Lemma sem_stp_img: forall G J t T1 T1' T2,
+    sem_type G J t (TImg (TFun T1 T2) T1') ->
+    sem_type G J t (TRange (TFun T1 T2)).
+Proof.
+  intros ? ? ? ? ? ? HX. intros E V WFE.
   destruct (HX E V WFE) as (vx & STX & VX).
   exists vx. split. eauto.
   destruct vx; eapply VX.
@@ -903,6 +989,8 @@ Proof.
   - eapply sem_app_dom_range; eauto.
   - eapply sem_stp_dom; eauto.
   - eapply sem_stp_range; eauto.
+  - eapply sem_app_dom_img; eauto. eapply stp_fundamental; eauto.
+  - eapply sem_stp_img; eauto. 
 Qed.
 
 Corollary safety: forall t T,
@@ -936,6 +1024,7 @@ Proof.
   - eapply IHhas_type. intros. eapply indexr_map' in H1.
     destruct H1 as (?&?&?). subst.
     eapply closedt_splice. eauto.
+  - eapply IHhas_type. eauto. 
   - eapply IHhas_type. eauto. 
 Qed.
 
@@ -996,8 +1085,6 @@ Proof.
   eapply t_app. 2: { eapply t_abs with (T1:=TBool). eapply t_var. simpl. eauto. simpl. eauto. }
   specialize etaAppliedHasType. intros. simpl in H. eauto. 
 Qed.
-
-
 
 
 End STLC.

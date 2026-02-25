@@ -445,9 +445,8 @@ Qed.
    relation implies contextual equivalence (congruency wrt
    putting expressions in context *)
 
-(* Q: Do we need to prove a theorem that these are all
-   possible contexts? Do we need to consider only one-hole
-   contexts or also (fun x => tapp x x)? *)
+(* NB: one could add a lemma showing that these are all
+   possible contexts. *)
 
 Inductive ctx_type : (tm -> tm) -> tenv -> ty -> tenv -> ty -> Prop :=
 | c_top: forall G T,
@@ -476,38 +475,49 @@ Proof.
   - eapply sem_abs. eauto.
 Qed.
 
+
+Definition kleene_equiv e e' :=
+  forall b,
+    tevaln [] e (vbool b) <-> tevaln [] e' (vbool b).
+
 Lemma adequacy: forall e e' T,
   sem_type [] e e' T ->
-  (exists v, tevaln [] e v) <-> 
-  (exists v', tevaln [] e' v').
+  kleene_equiv e e'.
 Proof. 
   intros. 
-  assert (env_type [] [] []) as WFE. { unfold env_type; intuition. inversion H0. }
-  unfold sem_type in H. specialize (H [] [] WFE). 
-  destruct H as [? [? [? [? ?]]]].
+  destruct (H [] []) as (v & v' & TE1 & TE2 & VT).
+  split. 2: split. eauto. eauto. intros. inversion H0.
+  destruct TE1 as (n1 & TE1).
+  destruct TE2 as (n2 & TE2).
   split. 
-  + intros. exists x0. intuition.
-  + intros. exists x. intuition.
+  + intros (n1' & TE1'). remember (S (n1+n2+n1')) as n.
+    assert (n > n1) as N1. lia. specialize (TE1 n N1).
+    assert (n > n1') as N1'. lia. specialize (TE1' n N1').
+    rewrite TE1 in TE1'. inversion TE1'. subst v.
+    destruct v', T; simpl in VT; try contradiction. subst b.
+    eexists n. intros. eapply TE2. lia. 
+  + intros (n2' & TE2'). remember (S (n1+n2+n2')) as n.
+    assert (n > n2) as N2. lia. specialize (TE2 n N2).
+    assert (n > n2') as N2'. lia. specialize (TE2' n N2').
+    rewrite TE2 in TE2'. inversion TE2'. subst v'.
+    destruct v, T; simpl in VT; try contradiction. subst b.
+    eexists n. intros. eapply TE1. lia. 
 Qed.
 
+
 Definition context_equiv G t1 t2 T1 :=
-  has_type G t1 T1 ->
-  has_type G t2 T1 ->
   forall C,
     ctx_type C G T1 [] TBool ->
-    (exists v1, tevaln [] (C t1) v1) <->
-    (exists v2, tevaln [] (C t2) v2).
+    kleene_equiv (C t1) (C t2).
 
-(* soundness of binary logical relations *)
+(* soundness of binary logical relations wrt contextual equivalence *)
 Theorem soundess: forall G t1 t2 T,
   sem_type G t1 t2 T ->
   context_equiv G t1 t2 T.
 Proof.
-  intros. unfold context_equiv. intros.
-  assert (sem_type [] (C t1) (C t2) TBool). {
-    specialize (congr C G  T [] TBool); intuition.
-  }
-  eapply adequacy; eauto. 
+  intros. intros ? HC.
+  eapply adequacy.
+  eapply congr; eauto. 
 Qed.
 
 

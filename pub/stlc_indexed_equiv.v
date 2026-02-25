@@ -169,13 +169,13 @@ Fixpoint val_type n v1 v2 T {struct n}: Prop :=
       | vabs H1 ty1, vabs H2 ty2, TFun T1 T2 =>  
           forall nx vx1 vx2, 
             val_type (n-nx) vx1 vx2 T1 ->
-            forall ny1 ny2 ry1 ry2,
+            forall ny1 ry1,
               teval (n-nx) (vx1::H1) ty1 = (ny1, (Some ry1)) ->
-              teval (n-nx) (vx2::H2) ty2 = (ny2, (Some ry2)) ->
+              exists ny2 ry2, teval ny2 (vx2::H2) ty2 = (ny2, (Some ry2)) /\
               exists vy1 vy2,
                 ry1 = Some vy1 /\
                 ry2 = Some vy2 /\
-                val_type (n-nx-(min ny1 ny2)) vy1 vy2 T2
+                val_type (n-nx-ny1) vy1 vy2 T2
       | _,_,_ =>
           False
       end
@@ -183,13 +183,13 @@ Fixpoint val_type n v1 v2 T {struct n}: Prop :=
 
 
 Definition exp_type n H1 H2 t1 t2 T :=
-  forall n1 n2 r1 r2,
+  forall n1 r1,
     teval n H1 t1 = (n1, Some r1) ->
-    teval n H2 t2 = (n2, Some r2) ->
+    exists n2 r2, teval n2 H2 t2 = (n2, Some r2) /\
     exists v1 v2,
       r1 = Some v1 /\
       r2 = Some v2 /\
-      val_type (n-(min n1 n2)) v1 v2 T.
+      val_type (n-n1) v1 v2 T.
 
 Definition env_type n (H1 H2: venv) (G: tenv) :=
   length H1 = length G /\
@@ -260,8 +260,9 @@ Proof.
   destruct v1, v2, T1; simpl in H0; try contradiction.
   - simpl. eauto.
   - simpl. intros.
-    edestruct H0 with (nx:=n-n1+nx) as (?&?&?&?&?). eapply IHm. 2: eauto. lia. lia.
+    edestruct H0 with (nx:=n-n1+nx) as (?&?&?&?&?&?&?&?). eapply IHm. 2: eauto. lia. lia.
     eapply eval_deterministic. 2: eauto. eauto. lia.
+    eexists _,_. split. 
     eapply eval_deterministic. 2: eauto. eauto. lia. 
     eexists _,_. split. 2: split. eauto. eauto.
     eapply IHm. 2: eapply H7. lia. lia. 
@@ -284,32 +285,35 @@ Qed.
 Lemma sem_true: forall G,
     sem_type G ttrue ttrue TBool.
 Proof.
-  intros. intros n H1 H2 WFE. intros ? ? ? ? TE1 TE2.
-  destruct n; inversion TE1; inversion TE2. 
+  intros. intros n H1 H2 WFE. intros ? ? TE1.
+  destruct n; inversion TE1.
+  eexists 1,_. split. simpl. eauto. 
   exists (vbool true), (vbool true). split. 2: split.
   - eauto.
   - eauto.
-  - destruct n; try destruct n; simpl; eauto.
+  - destruct n; simpl; eauto.
 Qed.
 
 Lemma sem_false: forall G,
     sem_type G tfalse tfalse TBool.
 Proof.
-  intros. intros n H1 H2 WFE. intros ? ? ? ? TE1 TE2.
-  destruct n; inversion TE1; inversion TE2. 
+  intros. intros n H1 H2 WFE. intros ? ? TE1.
+  destruct n; inversion TE1.
+  eexists 1, _. split. simpl. eauto. 
   exists (vbool false), (vbool false). split. 2: split. 
   - eauto.
   - eauto.
-  - destruct n; try destruct n; simpl; eauto.
+  - destruct n; simpl; eauto.
 Qed.
 
 Lemma sem_var: forall G x T,
     indexr x G = Some T ->
     sem_type G (tvar x) (tvar x) T.
 Proof.
-  intros. intros n H1 H2 WFE. intros ? ? ? ? TE1 TE2.
+  intros. intros n H1 H2 WFE. intros ? ? TE1.
   eapply WFE in H as IX. destruct IX as (v1 & v2 & IX1 & IX2 & VX).
-  destruct n; inversion TE1; inversion TE2. 
+  destruct n; inversion TE1.
+  eexists 1,_. split. simpl. eauto. 
   exists v1, v2. split. 2: split. 
   - eauto.
   - eauto.
@@ -321,18 +325,17 @@ Lemma sem_app: forall G f1 f2 t1 t2 T1 T2,
     sem_type G t1 t2 T1 ->
     sem_type G (tapp f1 t1) (tapp f2 t2) T2.
 Proof.
-  intros ? ? ? ? ? ? ? HF HX. intros n H1 H2 WFE. intros n1 n2 r1 r2 TE1 TE2.
-  destruct n. { simpl in TE1. inversion TE1. } simpl in TE1, TE2. 
+  intros ? ? ? ? ? ? ? HF HX. intros n H1 H2 WFE. intros n1 r1 TE1.
+  destruct n. { simpl in TE1. inversion TE1. } simpl in TE1.
 
+  (* eexists _,_. simpl. *)
+  
   (* function evaluates *)
   remember (teval n H1 f1) as tf1. symmetry in Heqtf1. destruct tf1 as [nf1 [rf1|]]. 2: inversion TE1.
-  remember (teval n H2 f2) as tf2. symmetry in Heqtf2. destruct tf2 as [nf2 [rf2|]]. 2: inversion TE2.
-  edestruct (HF (S n) H1 H2) as (vf1 & vf2 & STF1 & STF2 & VF). eauto.
+  edestruct (HF (S n) H1 H2) as (nf2 & rf2 & TF2 & (vf1 & vf2 & RF1 & RF2 & VF)). eapply envt_dec; eauto. eauto.
   eapply eval_deterministic. eauto. eauto. lia.
-  eapply eval_deterministic. eauto. eauto. lia. 
   eapply eval_bounded in Heqtf1 as BF1; eauto.
-  eapply eval_bounded in Heqtf2 as BF2; eauto.
-  remember (S n - (min nf1 nf2)) as nf'. destruct nf'. lia.
+  remember (S n - nf1) as nf'. destruct nf'. lia.
   subst rf1 rf2.
 
   (* result is a function value *)
@@ -340,50 +343,48 @@ Proof.
 
   (* argument evaluates *)
   remember (teval (n-nf1) H1 t1) as tx1. symmetry in Heqtx1. destruct tx1 as [nx1 [rx1|]]. 2: inversion TE1. 
-  remember (teval (n-nf2) H2 t2) as tx2. symmetry in Heqtx2. destruct tx2 as [nx2 [rx2|]]. 2: inversion TE2.
-  edestruct (HX (S n) H1 H2) as (vx1 & vx2 & STX1 & STX2 & VX). eauto.
-  eapply eval_deterministic. eauto. eauto. lia.
+  edestruct (HX (S n) H1 H2) as (nx2 & rx2 & TX2 & (vx1 & vx2 & RX1 & RX2 & VX)). eauto.
   eapply eval_deterministic. eauto. eauto. lia.
   eapply eval_bounded in Heqtx1 as BX1; eauto.
-  eapply eval_bounded in Heqtx2 as BX2; eauto.
-  remember (S n - (min nx1 nx2)) as nx'. destruct nx'. lia.
+  remember (S n - nx1) as nx'. destruct nx'. lia.
   subst rx1 rx2. 
 
   (* function body evaluates *)
   remember (teval (n-nf1-nx1) (vx1 :: l) t) as ty1. symmetry in Heqty1. destruct ty1 as [ny1 [ry1|]]. 2: inversion TE1.
-  remember (teval (n-nf2-nx2) (vx2 :: l0) t0) as ty2. symmetry in Heqty2. destruct ty2 as [ny2 [ry2|]]. 2: inversion TE2.
   eapply eval_bounded in Heqty1 as BY1; eauto.
-  eapply eval_bounded in Heqty2 as BY2; eauto.
-  inversion TE1. inversion TE2.
-  subst ry1 ry2.
+  inversion TE1. 
+  subst ry1.
 
   (* from function LR: function body result is well-typed *)
-  assert (nf' = n - (min nf1 nf2)). lia. subst nf'. 
-  edestruct VF with (nx:=(min nx1 nx2)) as (vy1 & vy2 & ? & ? & VY).
+  assert (nf' = n - nf1). lia. subst nf'. 
+  edestruct VF with (nx:=nx1) as (ny2 & ry2 & TY2 & (vy1 & vy2 & RY1 & RY2 & VY)).
   eapply valt_dec; eauto. lia.
   eapply eval_deterministic. 2: eauto. eauto. lia.
-  eapply eval_deterministic. 2: eauto. eauto. lia.
-  
-  subst r1 r2.
+
+  eexists (S (nf2+nx2+ny2)),ry2. split. simpl.
+  eapply eval_deterministic in TF2. rewrite TF2.
+  eapply eval_deterministic in TX2. rewrite TX2.
+  eapply eval_deterministic in TY2. rewrite TY2.
+  eauto. eauto. lia. eauto. lia. eauto. lia. 
 
   (* return result *)
   exists vy1, vy2. split. 2: split.
-  eauto. eauto. eapply valt_dec. eauto. eapply VY. lia. (* SLOW! *)
+  eauto. eauto. eapply valt_dec. eauto. eapply VY. lia.
 Qed.
 
 Lemma sem_abs: forall G t1 t2 T1 T2,
     sem_type (T1::G) t1 t2 T2 ->
     sem_type G (tabs t1) (tabs t2) (TFun T1 T2).
 Proof.
-  intros ? ? ? ? ? HY. intros n H1 H2 WFE. intros ? ? ? ? TE1 TE2.
-  destruct n; inversion TE1; inversion TE2.
+  intros ? ? ? ? ? HY. intros n H1 H2 WFE. intros ? ? TE1.
+  destruct n; inversion TE1.
+  eexists 1, _. split. simpl. eauto. 
   exists (vabs H1 t1), (vabs H2 t2). split. 2: split. 
   - eauto.
   - eauto.
   - simpl. destruct n; simpl; eauto. intros.
-    edestruct (HY) as (vy1 & vy2 & ? & ? & ?). eapply envt_extend.
+    edestruct (HY) as (ny2 & ry2 & TY1 & ?). eapply envt_extend.
     eapply envt_dec. eauto. 2: eauto. lia. eauto. eauto.
-    eexists vy1, vy2. split. 2: split. eauto. eauto. eauto.
 Qed.
 
 
@@ -407,12 +408,152 @@ Corollary safety: forall t T,
   has_type [] t T ->
   forall n, exp_type n [] [] t t T.
 Proof. 
-  intros. intros ? ? ? ? TE1 TE2.
+  intros. intros ? ? TE1.
   eapply fundamental in H as ST; eauto.
-  edestruct (ST n [] []) as (v1 & v2 & ? & ? & ?).
-  eapply envt_empty. eapply TE1. eapply TE2.
-  eexists v1, v2. split. 2: split.
-  eauto. eauto. eauto.
+  edestruct (ST n [] []) as (? & ? & ? & ?).
+  eapply envt_empty. eapply TE1. 
+  eexists _,_. split. eauto. eauto.
 Qed.
+
+
+(* ---------- LR contextual approximation and equivalence  ---------- *)
+
+(* Define typed contexts and prove that the binary logical
+   relation implies contextual equivalence (congruency wrt
+   putting expressions in context *)
+
+(* NB: one could add a lemma showing that these are all
+   possible contexts. *)
+
+Inductive ctx_type : (tm -> tm) -> tenv -> ty -> tenv -> ty -> Prop :=
+| c_top: forall G T,
+    ctx_type (fun x => x) G T G T
+| c_app1: forall e2 G T1 T2,
+    has_type G e2 T1 ->
+    ctx_type (fun x => tapp x e2) G (TFun T1 T2) G T2
+| c_app2: forall e1 G T1 T2,
+    has_type G e1 (TFun T1 T2) ->
+    ctx_type (fun x => tapp e1 x) G T1 G T2
+| c_abs: forall G T1 T2,
+    ctx_type (fun x => tabs x) (T1::G) T2 G (TFun T1 T2).
+
+Theorem congr:
+  forall C G1 T1 G2 T2,
+    ctx_type C G1 T1 G2 T2 ->
+  forall e e',
+    sem_type G1 e e' T1 ->
+    sem_type G2 (C e) (C e') T2.
+Proof.
+  intros ? ? ? ? ? CX.
+  induction CX; intros.
+  - eauto.
+  - eapply sem_app. eauto. eapply fundamental. eauto.
+  - eapply sem_app. eapply fundamental. eauto. eauto.
+  - eapply sem_abs. eauto.
+Qed.
+
+
+Definition tevaln env e v := exists n n', teval n env e = (n',Some (Some v)).
+
+Definition kleene_approx e e' :=
+   (exists v, tevaln [] e v) -> (exists v', tevaln [] e' v').
+
+(* NOTE: it may be desirable to also prove the following property *)
+Definition kleene_approx2 e e' :=
+   forall b, tevaln [] e (vbool b) -> tevaln [] e' (vbool b).
+
+
+Lemma adequacy: forall e e' T,
+  sem_type [] e e' T ->
+  kleene_approx e e'.
+Proof. 
+  intros. intros [v1 [n1 [n1' TE1]]].
+  edestruct (H n1 [] []) as (n2 & r2 & TE2 & (v1' & v2' & R1 & R2 & VT)).
+  split. 2: split. eauto. eauto. intros. inversion H0.
+  eauto.
+  subst r2. eexists _,_,_. eauto. 
+Qed.
+
+
+Definition context_approx G t1 t2 T1 :=
+  forall C,
+    ctx_type C G T1 [] TBool ->
+    kleene_approx (C t1) (C t2).
+
+(* soundness of binary logical relations wrt contextual approximation *)
+Theorem soundess: forall G t1 t2 T,
+  sem_type G t1 t2 T ->
+  context_approx G t1 t2 T.
+Proof.
+  intros. intros ? HC.
+  eapply adequacy.
+  eapply congr; eauto. 
+Qed.
+
+
+(* ---- from approximation to equivalence ---- *)
+
+Definition sem_type2 G e e' T :=
+  sem_type G e e' T /\
+  sem_type G e' e T.
+
+Theorem fundamental2: forall G t T,
+    has_type G t T ->
+    sem_type2 G t t T.
+Proof.
+  intros ? ? ? W.
+  split; eapply fundamental; eauto.
+Qed.
+
+Theorem congr2:
+  forall C G1 T1 G2 T2,
+    ctx_type C G1 T1 G2 T2 ->
+  forall e e',
+    sem_type2 G1 e e' T1 ->
+    sem_type2 G2 (C e) (C e') T2.
+Proof.
+  intros ? ? ? ? ? CX.
+  induction CX; intros. 
+  - eauto.
+  - destruct H0. split.
+    eapply sem_app. eauto. eapply fundamental. eauto.
+    eapply sem_app. eauto. eapply fundamental. eauto.
+  - destruct H0. split.
+    eapply sem_app. eapply fundamental. eauto. eauto. 
+    eapply sem_app. eapply fundamental. eauto. eauto.
+  - destruct H. split.
+    eapply sem_abs. eauto.
+    eapply sem_abs. eauto.
+Qed.
+
+Definition kleene_equiv e e' :=
+  kleene_approx e e' /\
+  kleene_approx e' e.
+
+Definition context_equiv G t1 t2 T1 :=
+  forall C,
+    ctx_type C G T1 [] TBool ->
+    kleene_equiv (C t1) (C t2).
+
+Lemma adequacy2: forall e e' T,
+  sem_type2 [] e e' T ->
+  kleene_equiv e e'.
+Proof.
+  intros. destruct H. split.
+  eapply adequacy; eauto.
+  eapply adequacy; eauto.
+Qed.
+
+(* soundness of binary logical relations wrt contextual approximation *)
+Theorem soundess2: forall G t1 t2 T,
+  sem_type2 G t1 t2 T ->
+  context_equiv G t1 t2 T.
+Proof.
+  intros. intros ? HC.
+  eapply adequacy2.
+  eapply congr2; eauto. 
+Qed.
+
+
 
 End STLC.

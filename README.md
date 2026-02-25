@@ -30,6 +30,8 @@ STLC variations:
 
 - Stlc binary LR with proof of beta equivalence: [stlc_equiv_beta.v](pub/stlc_equiv_beta.v)
 
+- Stlc with step-indexed binary LR: [stlc_indexed_equiv.v](pub/stlc_indexed_equiv.v)
+
 - Stlc with subtyping: [stlc_stp.v](pub/stlc_stp.v)
 
 

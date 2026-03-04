@@ -142,9 +142,13 @@ Inductive stp : kenv -> ty -> ty -> Prop :=
     stp J T2 T4 ->
     stp J (TFun T1 T2) (TFun T3 T4)
 (* non-standard rules: *)
-| s_dom_sub: forall J T1 T2,
+| s_dom_sub_right: forall J T1 T2,
     stp J T1 (TDom (TFun T1 T2))
-| s_range_sub: forall J T1 T2,
+| s_dom_sub_left: forall J T1 T2,
+    stp J (TDom (TFun T1 T2)) T1
+| s_range_sub_right: forall J T1 T2,
+    stp J T2 (TRange (TFun T1 T2))
+| s_range_sub_left: forall J T1 T2,
     stp J (TRange (TFun T1 T2)) T2
 | s_dom_congr: forall J T1 T2,
     stp J T1 T2 ->
@@ -992,15 +996,29 @@ Proof.
   - eapply ST24. eauto. 
 Qed.
 
-Lemma sem_stp_dom_sub: forall G J T1 T2,
+Lemma sem_stp_dom_sub_right: forall G J T1 T2,
   sem_stp G J T1 (TDom (TFun T1 T2)).
 Proof.
   intros ? ? ? ?. intros ? ? ? ? WFE.
   simpl. destruct (pos i); eauto.
 Qed.
 
-Lemma sem_stp_range_sub: forall G J T1 T2,
+Lemma sem_stp_dom_sub_left: forall G J T1 T2,
+  sem_stp G J (TDom (TFun T1 T2)) T1.
+Proof.
+  intros ? ? ? ?. intros ? ? ? ? WFE.
+  simpl. destruct (pos i); eauto.
+Qed.
+
+Lemma sem_stp_range_sub_left: forall G J T1 T2,
   sem_stp G J (TRange (TFun T1 T2)) T2.
+Proof.
+  intros ? ? ? ?. intros ? ? ? ? WFE.
+  simpl. destruct (pos i); eauto.
+Qed.
+
+Lemma sem_stp_range_sub_right: forall G J T1 T2,
+  sem_stp G J T2 (TRange (TFun T1 T2)).
 Proof.
   intros ? ? ? ?. intros ? ? ? ? WFE.
   simpl. destruct (pos i); eauto.
@@ -1009,6 +1027,7 @@ Qed.
 Lemma sem_stp_dom_congr: forall G J T1 T2,
   sem_stp G J T1 T2 ->
   sem_stp G J (TDom T2) (TDom T1).
+
 Proof.
   intros ? ? ? ? ST12. intros ? ? ? ? WFE.
   specialize (ST12 _ _ v (sl_dom::i) WFE). simpl in *.
@@ -1033,8 +1052,10 @@ Proof.
   - eapply sem_stp_any; eauto. 
   - eapply sem_stp_bool; eauto. 
   - eapply sem_stp_fun; eauto.
-  - eapply sem_stp_dom_sub; eauto.
-  - eapply sem_stp_range_sub; eauto. 
+  - eapply sem_stp_dom_sub_right; eauto.
+  - eapply sem_stp_dom_sub_left; eauto.
+  - eapply sem_stp_range_sub_right; eauto. 
+  - eapply sem_stp_range_sub_left; eauto. 
   - eapply sem_stp_dom_congr; eauto.
   - eapply sem_stp_range_congr; eauto. 
 Qed.

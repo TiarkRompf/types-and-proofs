@@ -141,7 +141,18 @@ Inductive stp : kenv -> ty -> ty -> Prop :=
     stp J T3 T1 ->
     stp J T2 T4 ->
     stp J (TFun T1 T2) (TFun T3 T4)
-.(* TODO *)
+(* non-standard rules: *)
+| s_dom_sub: forall J T1 T2,
+    stp J T1 (TDom (TFun T1 T2))
+| s_range_sub: forall J T1 T2,
+    stp J (TRange (TFun T1 T2)) T2
+| s_dom_congr: forall J T1 T2,
+    stp J T1 T2 ->
+    stp J (TDom T2) (TDom T1)
+| s_range_congr: forall J T1 T2,
+    stp J T1 T2 ->
+    stp J (TRange T1) (TRange T2)
+. (* TODO *)
 
 Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
 | t_true: forall env J,
@@ -240,48 +251,104 @@ Definition tevaln env e v := exists nm, forall n, n > nm -> teval n env e = Some
 (* ---------- LR definitions  ---------- *)
 
 Inductive sel: Type :=
-| sl_root: sel
-| sl_dom: sel -> sel
-| sl_range: sel -> sel
+| sl_dom: sel
+| sl_range: sel
 .
 
-Definition vtype := vl -> sel -> Prop.
+Fixpoint pos s :=
+  match s with
+    | nil => true
+    | sl_range :: i => pos i
+    | sl_dom :: i => negb (pos i)
+  end.
+
+
+Definition vtype := vl -> list sel -> Prop.
+
+
+Definition likeFunctionType (vt: vtype) :=
+  forall i v,
+    vt v i ->
+    forall vx,
+      vt vx (i++[sl_dom]) ->
+      exists H' ty', v = vabs H' ty' /\
+      exists vy,
+        tevaln (vx::H') ty' vy /\
+          vt vy (i++[sl_range]).
+
+
+(* --- alternative: this is not quite right yet --- *)
+
+Definition vt_fun (vt1 vt2: vtype): vtype :=
+  fun v i =>
+    match i, v with
+    | sl_root, vabs H' ty' =>
+        forall vx,
+          vt1 vx sl_root  ->
+          exists vy,
+            tevaln (vx::H') ty' vy /\
+              vt2 vy sl_root
+    | sl_dom:: i, v =>
+        vt1 v i
+    | sl_range:: i, v =>
+        vt2 v i
+    | _, _ => False
+    end.
+
+Definition vt_dom (vt1: vtype): vtype :=
+  fun v i =>
+    vt1 v (sl_dom::i).
+
+Definition vt_range (vt1: vtype): vtype :=
+  fun v i =>
+    vt1 v (sl_range::i).
+
+Definition likeFunctionType1 (vt: vtype) :=
+  forall v i, vt_fun (vt_dom vt) (vt_range vt) v i -> vt v i.
+
+(* --- end alternative --- *)
+
 
 Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
-  match v, T, i with
-  | v, TAny, sl_root =>
+  match T, i, v with
+  | TBool, nil, vbool b =>  
       True
-  | vbool b, TBool, sl_root =>  
-      True
-  | v, TVar x, i =>
+  | TVar x, i, v =>
       exists vt, 
       indexr x V = Some vt /\ vt v i
-  | vabs H ty, TFun T1 T2, sl_root =>
+  | TFun T1 T2, nil, vabs H ty =>
       forall vx,
-        val_type V vx T1 sl_root ->
+        val_type V vx T1 nil ->
         exists vy,
           tevaln (vx::H) ty vy /\
-          val_type V vy T2 sl_root
-  | vtabs H ty, TAll T1 T2, sl_root => (* TODO *)
+          val_type V vy T2 nil
+  | TAll T1 T2, nil, vtabs H ty => (* TODO *)
       forall vt,
+        likeFunctionType vt ->
         exists vy,
           tevaln H ty vy /\
-          val_type (vt::V) vy T2 sl_root
-  | v, TDom TF, i =>
-     val_type V v TF (sl_dom i) /\
-       forall vf, val_type V vf TF i ->
-                      exists H ty vy, vf = vabs H ty /\
-          tevaln (v::H) ty vy /\
-          val_type V vy TF (sl_range i)
-  | v, TRange TF, i =>
-      val_type V v TF (sl_range i)
-  | v, TImg TF T1, i =>
+          val_type (vt::V) vy T2 nil
+  | TDom TF, i, v =>
+      val_type V v TF (sl_dom::i)
+  | TRange TF, i, v =>
+      val_type V v TF (sl_range::i)
+  | TImg TF T1, i, v =>
       (* TODO: T1? *)
-      val_type V v TF (sl_range i)
-  | v, TFun T1 T2, sl_dom k =>
+      val_type V v TF (sl_range::i)
+  | TFun T1 T2, sl_dom:: k, v =>
       val_type V v T1 k
-  | v, TFun T1 T2, sl_range k =>
+  | TFun T1 T2, sl_range:: k, v =>
       val_type V v T2 k
+  | TAny, i, v =>
+      pos i = true
+  | TBool, nil, v =>
+      False
+  | TAll T1 T2, nil, v =>
+      False
+  | TBool, i, v =>  
+      pos i = true
+  | TAll T1 T2, i, v =>  
+      pos i = true
   | _,_,_ =>
       False
   end.
@@ -289,22 +356,31 @@ Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
 Definition exp_type H V t T :=
   exists v,
     tevaln H t v /\
-    val_type V v T sl_root.
+    val_type V v T nil.
+
 
 Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
   length H = length G /\
   length V = length J /\
-    forall x T,
+    (forall x T,
       indexr x G = Some T ->
       exists v,
         indexr x H = Some v /\
-        val_type V v T sl_root.
+        val_type V v T nil) /\
+    (forall x T,
+      indexr x J = Some T ->
+      exists vt,
+        indexr x V = Some vt /\
+        likeFunctionType vt).
 
-Definition sem_stp (J: kenv) T1 T2 :=
-  forall V v,
-    length V = length J ->
-    val_type V v T1 sl_root ->
-    val_type V v T2 sl_root.
+
+Definition sem_stp G (J: kenv) T1 T2 :=
+  forall H V v i,
+    env_type H G V J ->
+    if (pos i) then
+      val_type V v T1 i -> val_type V v T2 i
+    else
+      val_type V v T2 i -> val_type V v T1 i.
 
 Definition sem_type G J t T :=
   forall H V,
@@ -457,32 +533,14 @@ Proof.
       exists vy. split. eauto. eapply IHT2; eauto. 
     + destruct (H vx) as (vy & ? & VY). eapply IHT1; eauto.
       exists vy. split. eauto. eapply IHT2; eauto. }
-    destruct v; eapply IHT1; eauto.
+    destruct s. destruct v; eapply IHT1; eauto.
     destruct v; eapply IHT2; eauto. 
   - destruct v,k; simpl in *; split; intros; eauto.
-    + destruct (H vt0) as (vy & ? & VY). 
+    + destruct (H vt0) as (vy & ? & VY). eauto.
       exists vy. split. eauto. eapply IHT2 with (V1:=vt0::V1); eauto. 
-    + destruct (H vt0) as (vy & ? & VY). 
+    + destruct (H vt0) as (vy & ? & VY). eauto. 
       exists vy. split. eauto. eapply IHT2 with (V1:=vt0::V1); eauto. 
-  - split; destruct v.
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
-    + intros. simpl in *. destruct H. split. eapply IHT; eauto.
-      intros. eapply IHT in H1; eauto. destruct (H0 _ H1) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT; eauto. 
+  - destruct v; simpl in *; eapply IHT; eauto. 
   - destruct v; simpl in *; eapply IHT; eauto. 
   - destruct v; simpl in *; eapply IHT1; eauto. 
 Qed.
@@ -563,39 +621,23 @@ Proof.
       exists vy. split. eauto. eapply IHT2_2; eauto.
     + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
       exists vy. split. eauto. eapply IHT2_2; eauto.
-    + destruct v; eapply IHT2_1; eauto.
-    + destruct v; eapply IHT2_2; eauto.
+    + destruct s; simpl.
+      destruct v; eapply IHT2_1; eauto.
+      destruct v; eapply IHT2_2; eauto.
   - destruct k. destruct v; simpl in *; split; intros; eauto.
-    + destruct (H0 vt0) as (vy & ? & VY).
+    + destruct (H0 vt0) as (vy & ? & VY). eauto.
       exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1); eauto.
-      clear H3. eapply H2 in VY. clear H2. simpl in VY.
+      clear H4. eapply H3 in VY. clear H3. simpl in VY.
       rewrite splice_acc. eauto.
-    + destruct (H0 vt0) as (vy & ? & VY).
+    + destruct (H0 vt0) as (vy & ? & VY). eauto.
       exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1); eauto.
       rewrite splice_acc in VY. 
-      clear H2. eapply H3 in VY. simpl in VY.
+      clear H3. eapply H4 in VY. simpl in VY.
       eauto.
-    + destruct v; simpl; intuition.
-    + destruct v; simpl; intuition.
-  - split; destruct v.
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
-    + intros. simpl in *. destruct H0. split. eapply IHT2; eauto.
-      intros. eapply IHT2 in H2; eauto. destruct (H1 _ H2) as (?&?&?&?&?&?).
-      eexists _,_,_. split. eauto. split. eauto. eapply IHT2; eauto. 
+    + destruct s; simpl.
+      destruct v; simpl; intuition.
+      destruct v; simpl; intuition.
+  - destruct v; simpl in *; eapply IHT2; eauto. 
   - destruct v; simpl in *; eapply IHT2; eauto. 
   - destruct v; simpl in *; eapply IHT2_1; eauto. 
 Qed.
@@ -610,24 +652,75 @@ Proof.
   eauto.
 Qed.
 
+Lemma pos_app: forall i,
+    pos (i++[sl_dom]) = negb (pos i).
+Proof.
+  intros i. induction i.
+  - simpl. eauto.
+  - simpl. destruct a. simpl.
+    rewrite IHi. eauto. eauto.
+Qed.
+
+Lemma valt_functionally: forall T H G V J,
+    env_type H G V J ->
+    likeFunctionType (fun v i => val_type V v T i).
+Proof.
+  intros. induction T; simpl; intros ?????.
+  - (* any *)
+    rewrite pos_app in *. rewrite H1 in H2. inversion H2. 
+  - (* bool *)
+    destruct i; simpl in *. inversion H2. 
+    destruct s; rewrite pos_app, H1 in H2; inversion H2.
+  - (* var *)
+    destruct H1 as (?&?&?). destruct H2 as (?&?&?).
+    assert (length V = length J). eapply H0. 
+    assert (i < length J). eapply indexr_var_some' in H1. lia.
+    eapply indexr_var_some in H6. destruct H6 as (T & ?).
+    eapply H0 in H6. destruct H6 as (vt & ? & IF).
+    rewrite H6 in H2, H1. inversion H1. inversion H2. subst x x0.
+    edestruct IF as (?&?&?&?&?&?). 2: eauto. eauto.
+    eexists _,_. split. eauto. eexists. split. eauto. eexists. split. eauto. eauto.
+  - (* fun *)
+    destruct i. {destruct v; try contradiction.
+    eexists _,_. split. eauto. eauto.}
+
+    simpl in *. destruct s.
+    eapply IHT1. eauto. eauto.
+    eapply IHT2. eauto. eauto.
+  - (* all *)
+    destruct i; simpl in *. inversion H2. 
+    destruct s; rewrite pos_app, H1 in H2; inversion H2.
+  - (* dom *)
+    edestruct IHT as (?&?&?&?). eapply H1. eauto.
+    eexists _,_. split. eauto. eauto. 
+  - (* range *)
+    edestruct IHT as (?&?&?&?). eapply H1. eauto.
+    eexists _,_. split. eauto. eauto. 
+  - (* range *)
+    edestruct IHT1 as (?&?&?&?). eapply H1. eauto.
+    eexists _,_. split. eauto. eauto. 
+ Qed.
+
+
+
 
 (* ---------- LR helper lemmas  ---------- *)
 
 Lemma envt_empty:
     env_type [] [] [] [].
 Proof.
-  intros. split. 2: split.
-  eauto. eauto. intros. inversion H. 
+  intros. split. 2: split. 3: split.
+  eauto. eauto. intros. inversion H. intros. inversion H.
 Qed.
 
 Lemma envt_extend: forall E G V J v1 T1,
     env_type E G V J ->
-    val_type V v1 T1 sl_root ->
+    val_type V v1 T1 nil ->
     env_type (v1::E) (T1::G) V J.
 Proof.
   intros. 
   remember H as WFE. clear HeqWFE.
-  destruct H as (? & ? & ?). split. 2: split.
+  destruct H as (? & ? & ? & ?). split. 2: split. 3: split.
   simpl. eauto. simpl. eauto. 
   intros x T IX. bdestruct (x =? length G).
   - subst x. rewrite indexr_head in IX. inversion IX. subst T1.
@@ -637,21 +730,26 @@ Proof.
     eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
     exists v2. split. rewrite indexr_skip; eauto. lia.
     eauto.
+  - eauto. 
 Qed.
 
 Lemma envt_extend_tabs: forall E G V J vt1 T1,
     env_type E G V J ->
+    likeFunctionType vt1 ->
     env_type E (map (splice (length V) 1) G) (vt1::V) (T1::J).
 Proof.
   intros. 
   remember H as WFE. clear HeqWFE.
-  destruct H as (? & ? & ?). split. 2: split.
+  destruct H as (? & ? & ? & ?). split. 2: split. 3: split.
   rewrite map_length. eauto. simpl. eauto. 
   intros x T IX.
   eapply indexr_map' in IX. destruct IX as (T' & IX & ?). 
   eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
   exists v2. split. eauto. subst T. 
-  eapply valt_extend in H4. eauto. 
+  eapply valt_extend in H6. eauto.
+  intros. bdestruct (x =? length J).
+  subst x. exists vt1. rewrite <-H1, indexr_head. split; eauto.
+  rewrite indexr_skip in H4. rewrite indexr_skip. eapply H3. eauto. lia. lia. 
 Qed.
 
 
@@ -710,31 +808,21 @@ Qed.
 Lemma sem_app_dom_img: forall G J f t TF T1,
     sem_type G J f TF ->
     sem_type G J t T1 ->
-    sem_stp J T1 (TDom TF) ->
+    sem_stp G J T1 (TDom TF) ->
     sem_type G J (tapp f t) (TImg TF T1).
 Proof.
   intros ? ? ? ? ? ? HF HX STPF. intros E V WFE.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct (HX E V WFE) as (vx & STX & VX).
 
-  eapply STPF in VX. 2: eapply WFE. 
+  specialize (STPF _ _ vx [] WFE). simpl in STPF.
   
-  destruct vx; simpl in VX. { (* XXX duplication! *)
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
-  
-  exists vy. split. 
-  - destruct STF as (n1 & STF).
-    destruct STX as (n2 & STX).
-    destruct STY as (n3 & STY).
-    exists (1+n1+n2+n3). intros. destruct n. lia.
-    simpl. rewrite STF, STX, STY. 2,3,4: lia.
-    eauto.
-  - simpl. destruct vy; eauto. } {
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
+  eapply STPF in VX. simpl in VX.
+
+  edestruct valt_functionally. eauto.
+  eapply VF. eapply VX.
+
+  destruct H as (?&?& vy & STY & VY). subst vf. 
   
   exists vy. split. 
   - destruct STF as (n1 & STF).
@@ -743,19 +831,7 @@ Proof.
     exists (1+n1+n2+n3). intros. destruct n. lia.
     simpl. rewrite STF, STX, STY. 2,3,4: lia.
     eauto.
-  - simpl. destruct vy; eauto. } {
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
-  
-  exists vy. split. 
-  - destruct STF as (n1 & STF).
-    destruct STX as (n2 & STX).
-    destruct STY as (n3 & STY).
-    exists (1+n1+n2+n3). intros. destruct n. lia.
-    simpl. rewrite STF, STX, STY. 2,3,4: lia.
-    eauto.
-  - simpl. destruct vy; eauto. }
+  - simpl. eapply VY.
 Qed.
 
 Lemma sem_app_dom_range: forall G J f t TF,
@@ -767,10 +843,12 @@ Proof.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct (HX E V WFE) as (vx & STX & VX).
 
-  destruct vx; simpl in VX. { (* XXX duplication! *)
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
+  simpl in VX.
+
+  edestruct valt_functionally. eauto.
+  eapply VF. eapply VX.
+
+  destruct H as (?&?& vy & STY & VY). subst vf. 
   
   exists vy. split. 
   - destruct STF as (n1 & STF).
@@ -779,31 +857,7 @@ Proof.
     exists (1+n1+n2+n3). intros. destruct n. lia.
     simpl. rewrite STF, STX, STY. 2,3,4: lia.
     eauto.
-  - simpl. destruct vy; eauto. } {
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
-  
-  exists vy. split. 
-  - destruct STF as (n1 & STF).
-    destruct STX as (n2 & STX).
-    destruct STY as (n3 & STY).
-    exists (1+n1+n2+n3). intros. destruct n. lia.
-    simpl. rewrite STF, STX, STY. 2,3,4: lia.
-    eauto.
-  - simpl. destruct vy; eauto. } {
-  destruct VX as (VX & VFF).
-  destruct (VFF vf VF) as (H & ty & vy & EVY & STY & VY).
-  subst vf. 
-  
-  exists vy. split. 
-  - destruct STF as (n1 & STF).
-    destruct STX as (n2 & STX).
-    destruct STY as (n3 & STY).
-    exists (1+n1+n2+n3). intros. destruct n. lia.
-    simpl. rewrite STF, STX, STY. 2,3,4: lia.
-    eauto.
-  - simpl. destruct vy; eauto. }
+  - simpl. eapply VY.
 Qed.
 
 Lemma sem_stp_dom: forall G J t T1 T2,
@@ -812,26 +866,7 @@ Lemma sem_stp_dom: forall G J t T1 T2,
 Proof.
   intros ? ? ? ? ? HX. intros E V WFE.
   destruct (HX E V WFE) as (vx & STX & VX).
-  exists vx. split. eauto.
-  destruct vx. {
-  split. eapply VX. intros.
-  destruct vf; simpl in H; try contradiction.
-  destruct (H _ VX) as (vy & ? & ?).
-  eexists l, t0, vy. split. eauto. split. eauto.
-  simpl. destruct vy; eauto.
-  } {
-  split. eapply VX. intros.
-  destruct vf; simpl in H; try contradiction.
-  destruct (H _ VX) as (vy & ? & ?).
-  eexists l0, t1, vy. split. eauto. split. eauto.
-  simpl. destruct vy; eauto.
-  } {
-  split. eapply VX. intros.
-  destruct vf; simpl in H; try contradiction.
-  destruct (H _ VX) as (vy & ? & ?).
-  eexists l0, t1, vy. split. eauto. split. eauto.
-  simpl. destruct vy; eauto.
-  }
+  exists vx. split. eauto. simpl. eauto. 
 Qed.
 
 Lemma sem_stp_range: forall G J t T1 T2,
@@ -890,14 +925,16 @@ Qed.
 
 Lemma sem_tapp: forall G J f (* t *) T1 T2,
     sem_type G J f (TAll T1 T2) ->
+    closed T1 (length J) ->
     sem_type G J (ttapp f T1) (subst T2 (length J) T1).
 Proof. 
-  intros ? ? ? ? ? HF. intros E V WFE.
+  intros ? ? ? ? ? HF CL1. intros E V WFE.
   assert (length E = length G) as L. eapply WFE.
   assert (length V = length J) as LV. eapply WFE.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct vf; simpl in VF; try contradiction.
-  edestruct VF as (vy & STY & VY). 
+  edestruct VF as (vy & STY & VY).
+  eapply valt_functionally. eauto. eauto. 
   exists vy. split.
   - destruct STF as (n1 & STF).
     destruct STY as (n3 & STY).
@@ -925,50 +962,92 @@ Qed.
 
 (* ---------- LR subtyping compatibility lemmas  ---------- *)
 
-Lemma sem_stp_any: forall J T,
-  sem_stp J T TAny.
+Lemma sem_stp_any: forall G J T,
+  sem_stp G J T TAny.
 Proof.
-  intros ? ? ? ? ? V1. destruct v; simpl; eauto.
+  intros ? ? ? ? ? ? ? WFE. remember (pos i). destruct b; intros V1. 
+  - simpl. eauto.
+  - simpl in V1. congruence. 
 Qed.
 
-Lemma sem_stp_bool: forall J,
-  sem_stp J TBool TBool.
+Lemma sem_stp_bool: forall G J,
+  sem_stp G J TBool TBool.
 Proof.
-  intros ? ? V1. eauto.
+  intros ? ? ? ? ? ? WFE. remember (pos i). destruct b; intros V1; eauto.
 Qed.
 
-Lemma sem_stp_fun: forall J T1 T2 T3 T4,
-  sem_stp J T3 T1 ->
-  sem_stp J T2 T4 ->
-  sem_stp J (TFun T1 T2) (TFun T3 T4).
+Lemma sem_stp_fun: forall G J T1 T2 T3 T4,
+  sem_stp G J T3 T1 ->
+  sem_stp G J T2 T4 ->
+  sem_stp G J (TFun T1 T2) (TFun T3 T4).
 Proof.
-  intros ? ? ? ? ? ST31 ST24. intros ? ? ? V1.
-  destruct v; simpl in *; eauto; intros.
-  destruct (V1 vx) as (vy & EY & VY).
-  eapply ST31; eauto.
-  eexists vy. split. eauto.
-  eapply ST24; eauto.
+  intros ? ? ? ? ? ? ST31 ST24. intros ? ? ? ? WFE.
+  destruct i; try destruct s; simpl; try intros V1.
+  - destruct v; simpl in *; eauto; intros.
+    destruct (V1 vx) as (vy & EY & VY).
+    eapply (ST31 _ _ _ []); eauto.
+    eexists vy. split. eauto.
+    eapply (ST24 _ _ _ []); eauto.
+  - specialize (ST31 _ _ v i WFE). destruct (pos i); simpl; eapply ST31.
+  - eapply ST24. eauto. 
 Qed.
 
-Theorem stp_fundamental: forall J T1 T2,
+Lemma sem_stp_dom_sub: forall G J T1 T2,
+  sem_stp G J T1 (TDom (TFun T1 T2)).
+Proof.
+  intros ? ? ? ?. intros ? ? ? ? WFE.
+  simpl. destruct (pos i); eauto.
+Qed.
+
+Lemma sem_stp_range_sub: forall G J T1 T2,
+  sem_stp G J (TRange (TFun T1 T2)) T2.
+Proof.
+  intros ? ? ? ?. intros ? ? ? ? WFE.
+  simpl. destruct (pos i); eauto.
+Qed.
+
+Lemma sem_stp_dom_congr: forall G J T1 T2,
+  sem_stp G J T1 T2 ->
+  sem_stp G J (TDom T2) (TDom T1).
+Proof.
+  intros ? ? ? ? ST12. intros ? ? ? ? WFE.
+  specialize (ST12 _ _ v (sl_dom::i) WFE). simpl in *.
+  destruct (pos i); eapply ST12. 
+Qed.
+
+Lemma sem_stp_range_congr: forall G J T1 T2,
+  sem_stp G J T1 T2 ->
+  sem_stp G J (TRange T1) (TRange T2).
+Proof.
+  intros ? ? ? ? ST12. intros ? ? ? ? WFE.
+  specialize (ST12 _ _ v (sl_range::i) WFE). simpl in *.
+  destruct (pos i); eapply ST12. 
+Qed.
+
+
+Theorem stp_fundamental: forall G J T1 T2,
     stp J T1 T2 ->
-    sem_stp J T1 T2.
+    sem_stp G J T1 T2.
 Proof.
   intros. induction H.
   - eapply sem_stp_any; eauto. 
   - eapply sem_stp_bool; eauto. 
   - eapply sem_stp_fun; eauto.
+  - eapply sem_stp_dom_sub; eauto.
+  - eapply sem_stp_range_sub; eauto. 
+  - eapply sem_stp_dom_congr; eauto.
+  - eapply sem_stp_range_congr; eauto. 
 Qed.
 
 
 Lemma sem_sub: forall G J t T1 T2,
     sem_type G J t T1 ->
-    sem_stp J T1 T2 ->
+    sem_stp G J T1 T2 ->
     sem_type G J t T2.
 Proof.
   intros ? ? ? ? ? H1 ST12. intros E V WFE.
   destruct (H1 E V) as (vy & ? & VY). eauto.
-  eexists. split. eauto. eapply ST12. eapply WFE. eauto. 
+  eexists. split. eauto. eapply (ST12 _ _ _ []). eapply WFE. eauto. 
 Qed.
 
 (* ---------- LR fundamental property  ---------- *)

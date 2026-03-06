@@ -4,7 +4,7 @@
 
 An proof that CPS conversion of STLC preserves types (modulo conversion).
 
-The transformation uses a dedicated lublange (cvar, capp, cabs, clet)
+The transformation uses a dedicated sublanguage (cvar, capp, cabs, clet)
 for terms introduced by the transformation.
 
 *)

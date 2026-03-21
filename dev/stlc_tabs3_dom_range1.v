@@ -1236,7 +1236,7 @@ Proof.
     bdestruct (x =? length env). inversion H2. subst. eauto.
     eapply H. eauto.
   - eapply closedt_subst. eauto. eapply IHhas_type. eauto. eauto. 
-  - split. eauto. eapply IHhas_type. intros. eapply indexr_map' in H2.
+  - rewrite map_length in *. split. eauto. eapply IHhas_type. intros. eapply indexr_map' in H2.
     destruct H2 as (?&?&?). subst.
     eapply closedt_splice. eauto.
   - eapply IHhas_type. eauto. 
@@ -1247,28 +1247,35 @@ Qed.
 
 (* ---------- examples  ---------- *)
 
-(* polymorphic id function: [T:*](x:T) -> T  *)
+(* polymorphic id function: [T<:Any](x:T) -> T  *)
 
-Definition polyId := ttabs (tabs (tvar 0)). 
+Definition polyId := ttabs (tabs (tvar 0)).
 
-Definition polyIdType := TAll TBool(* TODO: TAny!*) (TFun (TVar 0) (TVar 0)). 
+Definition polyIdType := TAll TAny (TFun (TVar 0) (TVar 0)).
 
 Lemma polyIdHasType:
   has_type [] [] polyId polyIdType.
 Proof.
   eapply t_tabs. eapply t_abs. eapply t_var.
-  simpl. eauto. simpl. eauto. simpl. eauto. 
+  simpl. eauto. simpl. eauto. simpl. eauto.
 Qed.
 
 Lemma polyIdAppliedHasType:
   has_type [] [] (ttapp polyId TBool) (TFun TBool TBool).
 Proof.
-  replace (TFun TBool TBool) with (subst (TFun (TVar 0) (TVar 0)) 0 TBool). 
-  eapply t_tapp. eapply polyIdHasType. simpl. eauto. simpl. eauto.
+  replace (TFun TBool TBool) with (subst (TFun (TVar 0) (TVar 0)) 0 TBool).
+  eapply t_tapp.
+  eapply t_sub. eapply polyIdHasType.
+  eapply s_all. eapply s_any.
+  simpl. eapply s_fun; eapply s_varx.
+  simpl. eauto.
+  simpl. eauto.
+  simpl. eauto.
+  simpl. eauto.
 Qed.
 
 
-(* polymorphic eta expansion with dom and range: [F:*](f: F)(x: dom(F)) -> range(F)  *)
+(* polymorphic eta expansion with dom and range: [F<:Any](f: F)(x: dom(F)) -> range(F)  *)
 
 Definition idFun := tabs (tvar 0).
 
@@ -1276,7 +1283,7 @@ Definition etaFun := ttabs (tabs (tabs (tapp (tvar 0) (tvar 1)))).
 
 Definition etaFunType' := TFun (TVar 0) (TFun (TDom (TVar 0)) (TRange (TVar 0))).
 
-Definition etaFunType := TAll (TFun TBool TBool)(* TODO TAny! *) etaFunType'.
+Definition etaFunType := TAll TAny etaFunType'.
 
 Lemma etaHasType:
   has_type [] [] etaFun etaFunType.
@@ -1289,7 +1296,10 @@ Qed.
 Lemma etaAppliedHasType:
   has_type [] [] (ttapp etaFun (TFun TBool TBool)) (subst etaFunType' 0 (TFun TBool TBool)).
 Proof.
-  eapply t_tapp. eapply etaHasType. simpl. eauto. 
+  eapply t_tapp. eapply t_sub. eapply etaHasType. eapply s_all. eapply s_any.
+  simpl. eapply s_fun. eapply s_varx. eapply s_fun.
+  eapply s_dom_congr. eapply s_varx. eapply s_range_congr. eapply s_varx.
+  simpl. intuition. simpl. intuition. simpl. intuition. 
 Qed.
 
 Lemma etaWithArgHasType:

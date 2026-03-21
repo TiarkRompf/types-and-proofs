@@ -141,6 +141,17 @@ Inductive stp : kenv -> ty -> ty -> Prop :=
     stp J T3 T1 ->
     stp J T2 T4 ->
     stp J (TFun T1 T2) (TFun T3 T4)
+| s_varx: forall J x,
+    stp J (TVar x) (TVar x)
+| s_var: forall J x U T,
+    indexr x J = Some U ->
+    stp J U T ->
+    stp J (TVar x) T
+| s_all: forall J T1 T2 T3 T4,
+    stp J T3 T1 ->
+    stp (map (splice (length J) 1) (T3::J)) T2 T4 ->
+    closed T3 (length J) ->
+    stp J (TAll T1 T2) (TAll T3 T4)
 (* non-standard rules: *)
 | s_dom_sub_right: forall J T1 T2,
     stp J T1 (TDom (TFun T1 T2))
@@ -179,7 +190,7 @@ Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
     closed T1 (length J) ->
     has_type env J (ttapp f T1) (subst T2 (length J) T1)
 | t_tabs: forall env J t T1 T2,
-    has_type (map (splice (length J) 1) env) (T1::J) t T2 ->
+    has_type (map (splice (length J) 1) env) (map (splice (length J) 1) (T1::J)) t T2 ->
     closed T1 (length J) ->
     has_type env J (ttabs t) (TAll T1 T2)
 | t_sub: forall env J t T1 T2,
@@ -326,7 +337,7 @@ Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
         exists vy,
           tevaln (vx::H) ty vy /\
           val_type V vy T2 nil
-  | TAll T1 T2, nil, vtabs H ty => (* TODO *)
+  | TAll T1 T2, nil, vtabs H ty =>
       forall vt,
         likeFunctionType vt ->
         exists vy,
@@ -373,9 +384,11 @@ Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
         val_type V v T nil) /\
     (forall x T,
       indexr x J = Some T ->
+      closed T (length J) /\
       exists vt,
         indexr x V = Some vt /\
-        likeFunctionType vt).
+        likeFunctionType vt /\
+        (forall v, vt v nil -> val_type V v T nil)).
 
 
 Definition sem_stp G (J: kenv) T1 T2 :=
@@ -740,7 +753,9 @@ Qed.
 Lemma envt_extend_tabs: forall E G V J vt1 T1,
     env_type E G V J ->
     likeFunctionType vt1 ->
-    env_type E (map (splice (length V) 1) G) (vt1::V) (T1::J).
+    (forall v, vt1 v nil -> val_type V v T1 nil) ->
+    closed T1 (length J) ->
+    env_type E (map (splice (length J) 1) G) (vt1::V) (map (splice (length J) 1) (T1::J)).
 Proof.
   intros. 
   remember H as WFE. clear HeqWFE.
@@ -994,6 +1009,45 @@ Proof.
     eapply (ST24 _ _ _ []); eauto.
   - specialize (ST31 _ _ v i WFE). destruct (pos i); simpl; eapply ST31.
   - eapply ST24. eauto. 
+Qed.
+
+Lemma sem_stp_varx: forall G J x,
+  sem_stp G J (TVar x) (TVar x).
+Proof.
+  intros ? ? ? ? ? ? WFE V1. eauto.
+Qed.
+
+Lemma sem_stp_var: forall G J x U T,
+    indexr x J = Some U ->
+    sem_stp G J U T ->
+    sem_stp G J (TVar x) T.
+Proof.
+  intros ? ? ? ? ? IX STU. intros H V v WFE VT.
+  simpl in VT. destruct VT as (vt & IX' & VTv).
+  remember WFE as WFE'. clear HeqWFE'.
+  destruct WFE as (? & ? & ? & BOUNDS).
+  edestruct BOUNDS as (CL & vt' & IX'' & BOUND). eauto.
+  rewrite IX'' in IX'. inversion IX'. subst vt'.
+  eapply STU; eauto.
+Qed.
+
+Lemma sem_stp_all: forall G J T1 T2 T3 T4,
+  sem_stp G J T3 T1 ->
+  sem_stp (map (splice (length J) 1) G) (map (splice (length J) 1) (T3::J)) T2 T4 ->
+  closed T3 (length J) ->
+  sem_stp G J (TAll T1 T2) (TAll T3 T4).
+Proof.
+  intros ? ? ? ? ? ? ST31 ST24 CL3. intros H V v WFE VT.
+  destruct v; simpl in *; try contradiction.
+  intros vt BOUND3.
+  assert (BOUND1: forall v0, vt v0 -> val_type V v0 T1). {
+    intros. eapply ST31; eauto.
+  }
+  edestruct VT as (vy & STY & VY). eauto.
+  exists vy. split. eauto.
+  assert (length V = length J) as LV. eapply WFE.
+  eapply ST24; eauto.
+  rewrite <-LV. eapply envt_extend_tabs; eauto.
 Qed.
 
 Lemma sem_stp_dom_sub_right: forall G J T1 T2,

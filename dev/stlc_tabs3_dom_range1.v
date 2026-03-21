@@ -340,6 +340,7 @@ Fixpoint val_type (V: list vtype) v T i {struct T}: Prop :=
   | TAll T1 T2, nil, vtabs H ty =>
       forall vt,
         likeFunctionType vt ->
+        (forall v i, if (pos i) then vt v i -> val_type V v T1 i else val_type V v T1 i -> vt v i) ->
         exists vy,
           tevaln H ty vy /\
           val_type (vt::V) vy T2 nil
@@ -388,7 +389,7 @@ Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
       exists vt,
         indexr x V = Some vt /\
         likeFunctionType vt /\
-        (forall v, vt v nil -> val_type V v T nil)).
+        (forall v i, if (pos i) then vt v i -> val_type V v T i else val_type V v T i -> vt v i)).
 
 
 Definition sem_stp G (J: kenv) T1 T2 :=
@@ -554,8 +555,14 @@ Proof.
     destruct v; eapply IHT2; eauto. 
   - destruct v,k; simpl in *; split; intros; eauto.
     + destruct (H vt0) as (vy & ? & VY). eauto.
-      exists vy. split. eauto. eapply IHT2 with (V1:=vt0::V1); eauto. 
-    + destruct (H vt0) as (vy & ? & VY). eauto. 
+      { intros v0 i0. specialize (H1 v0 i0). remember (pos i0) as p. destruct p; intros.
+        - eapply IHT1; eauto.
+        - eapply H1. eapply IHT1; eauto. }
+      exists vy. split. eauto. eapply IHT2 with (V1:=vt0::V1); eauto.
+    + destruct (H vt0) as (vy & ? & VY). eauto.
+      { intros v0 i0. specialize (H1 v0 i0). remember (pos i0) as p. destruct p; intros.
+        - eapply IHT1; eauto.
+        - eapply H1. eapply IHT1; eauto. }
       exists vy. split. eauto. eapply IHT2 with (V1:=vt0::V1); eauto. 
   - destruct v; simpl in *; eapply IHT; eauto. 
   - destruct v; simpl in *; eapply IHT; eauto. 
@@ -643,13 +650,19 @@ Proof.
       destruct v; eapply IHT2_2; eauto.
   - destruct k. destruct v; simpl in *; split; intros; eauto.
     + destruct (H0 vt0) as (vy & ? & VY). eauto.
-      exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1); eauto.
-      clear H4. eapply H3 in VY. clear H3. simpl in VY.
+      { intros v0 i0. specialize (H2 v0 i0). remember (pos i0) as p. destruct p; intros.
+        - eapply IHT2_1; eauto.
+        - eapply H2. eapply IHT2_1; eauto. }
+      exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1) as [FWD BWD]; eauto.
+      clear BWD. eapply FWD in VY. clear FWD. simpl in VY.
       rewrite splice_acc. eauto.
     + destruct (H0 vt0) as (vy & ? & VY). eauto.
-      exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1); eauto.
-      rewrite splice_acc in VY. 
-      clear H3. eapply H4 in VY. simpl in VY.
+      { intros v0 i0. specialize (H2 v0 i0). remember (pos i0) as p. destruct p; intros.
+        - eapply IHT2_1; eauto.
+        - eapply H2. eapply IHT2_1; eauto. }
+      exists vy. split. eauto. edestruct IHT2_2 with (V1:=vt0::V1) as [FWD BWD]; eauto.
+      rewrite splice_acc in VY.
+      clear FWD. eapply BWD in VY. simpl in VY.
       eauto.
     + destruct s; simpl.
       destruct v; simpl; intuition.
@@ -689,17 +702,20 @@ Proof.
     destruct i; simpl in *. inversion H2. 
     destruct s; rewrite pos_app, H1 in H2; inversion H2.
   - (* var *)
-    destruct H1 as (?&?&?). destruct H2 as (?&?&?).
-    assert (length V = length J). eapply H0. 
-    assert (i < length J). eapply indexr_var_some' in H1. lia.
-    eapply indexr_var_some in H6. destruct H6 as (T & ?).
-    eapply H0 in H6. destruct H6 as (vt & ? & IF).
-    rewrite H6 in H2, H1. inversion H1. inversion H2. subst x x0.
-    edestruct IF as (?&?&?&?&?&?). 2: eauto. eauto.
-    eexists _,_. split. eauto. eexists. split. eauto. eexists. split. eauto. eauto.
+    destruct H1 as (vt1 & IX1 & VT1).
+    destruct H2 as (vt2 & IX2 & VT2).
+    rewrite IX1 in IX2. inversion IX2. subst vt2.
+    destruct H0 as (_ & HV & _ & HJ).
+    assert (i < length V) as ILV. { eapply indexr_var_some'; eauto. }
+    assert (i < length J) as ILJ. { lia. }
+    apply indexr_var_some in ILJ. destruct ILJ as (T & IXT).
+    destruct (HJ _ _ IXT) as (_ & vt' & IX' & LF & _).
+    rewrite IX' in IX1. inversion IX1. subst vt'.
+    edestruct LF as (? & ? & ? & ? & ? & ?). 2: eauto. eauto.
+    eexists _, _. split. eauto. eexists. split. eauto. eexists. split. eauto. eauto.
   - (* fun *)
     destruct i. {destruct v; try contradiction.
-    eexists _,_. split. eauto. eauto.}
+    eexists _, _. split. eauto. eauto. }
 
     simpl in *. destruct s.
     eapply IHT1. eauto. eauto.
@@ -753,22 +769,42 @@ Qed.
 Lemma envt_extend_tabs: forall E G V J vt1 T1,
     env_type E G V J ->
     likeFunctionType vt1 ->
-    (forall v, vt1 v nil -> val_type V v T1 nil) ->
+    (forall v i, if (pos i) then vt1 v i -> val_type V v T1 i else val_type V v T1 i -> vt1 v i) ->
     closed T1 (length J) ->
     env_type E (map (splice (length J) 1) G) (vt1::V) (map (splice (length J) 1) (T1::J)).
 Proof.
-  intros. 
+  intros.
   remember H as WFE. clear HeqWFE.
-  destruct H as (? & ? & ? & ?). split. 2: split. 3: split.
-  rewrite map_length. eauto. simpl. eauto. 
+  destruct H as (HL & HV & HG & HJ). split. 2: split. 3: split.
+  rewrite map_length. eauto. simpl. rewrite map_length. eauto.
+  (* term env *)
   intros x T IX.
-  eapply indexr_map' in IX. destruct IX as (T' & IX & ?). 
-  eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
-  exists v2. split. eauto. subst T. 
-  eapply valt_extend in H6. eauto.
-  intros. bdestruct (x =? length J).
-  subst x. exists vt1. rewrite <-H1, indexr_head. split; eauto.
-  rewrite indexr_skip in H4. rewrite indexr_skip. eapply H3. eauto. lia. lia. 
+  eapply indexr_map' in IX. destruct IX as (T' & IX & ?).
+  eapply WFE in IX as IX. destruct IX as (v2 & IX2 & VT2).
+  exists v2. split. eauto. subst T.
+  rewrite <-HV. eapply valt_extend in VT2. eauto.
+  (* type env *)
+  intros x T IX.
+  eapply indexr_map' in IX. destruct IX as (T' & IX & ?).
+  subst T.
+  bdestruct (x =? length J).
+  - subst x. rewrite indexr_head in IX. inversion IX. subst T'.
+    split. rewrite map_length. eapply closedt_splice. eauto.
+    exists vt1. rewrite <-HV, indexr_head. split. eauto.
+    split. eauto.
+    intros v0 i0.
+    specialize (H1 v0 i0). destruct (pos i0); intros.
+    + eapply valt_extend. eapply H1. eauto.
+    + eapply H1. eapply valt_shrink. eauto.
+  - rewrite indexr_skip in IX; eauto.
+    edestruct HJ as (CL & vt' & IX' & LF & BOUND). eauto.
+    split. rewrite map_length. eapply closedt_splice. eauto.
+    exists vt'. split. rewrite indexr_skip. eauto. lia.
+    split. eauto.
+    intros v0 i0. specialize (BOUND v0 i0).
+    rewrite <-HV. destruct (pos i0); intros.
+    + eapply valt_extend. eapply BOUND. eauto.
+    + eapply BOUND. eapply valt_shrink. eauto.
 Qed.
 
 
@@ -952,8 +988,9 @@ Proof.
   assert (length V = length J) as LV. eapply WFE.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct vf; simpl in VF; try contradiction.
-  edestruct VF as (vy & STY & VY).
-  eapply valt_functionally. eauto. eauto. 
+  edestruct (VF (fun v i => val_type V v T1 i)) as (vy & STY & VY).
+  { eapply valt_functionally; eauto. }
+  { intros v0 i0. destruct (pos i0); intros; eauto. }
   exists vy. split.
   - destruct STF as (n1 & STF).
     destruct STY as (n3 & STY).
@@ -965,18 +1002,19 @@ Qed.
 
 
 Lemma sem_tabs: forall G J t T1 T2,
-    sem_type (map (splice (length J) 1) G) (T1::J) t T2 ->
+    sem_type (map (splice (length J) 1) G) (map (splice (length J) 1) (T1::J)) t T2 ->
+    closed T1 (length J) ->
     sem_type G J (ttabs t) (TAll T1 T2).
 Proof.
-  intros ? ? ? ? ? HY. intros E V WFE.
+  intros ? ? ? ? ? HY CL. intros E V WFE.
   assert (length E = length G) as L. eapply WFE.
   assert (length V = length J) as LV. eapply WFE.
   exists (vtabs E t). split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
-  - simpl. intros. 
+  - simpl. intros.
     destruct (HY E (vt::V)) as (? & ? & ?).
-    rewrite <-LV. eapply envt_extend_tabs; eauto.
-    eexists. split. eauto. eauto. 
+    eapply envt_extend_tabs; eauto.
+    eexists. split. eauto. eauto.
 Qed.
 
 (* ---------- LR subtyping compatibility lemmas  ---------- *)
@@ -1014,7 +1052,7 @@ Qed.
 Lemma sem_stp_varx: forall G J x,
   sem_stp G J (TVar x) (TVar x).
 Proof.
-  intros ? ? ? ? ? ? WFE V1. eauto.
+  intros ? ? ? ? ? ? ? WFE. remember (pos i). destruct b; intros V1; eauto.
 Qed.
 
 Lemma sem_stp_var: forall G J x U T,
@@ -1022,13 +1060,22 @@ Lemma sem_stp_var: forall G J x U T,
     sem_stp G J U T ->
     sem_stp G J (TVar x) T.
 Proof.
-  intros ? ? ? ? ? IX STU. intros H V v WFE VT.
-  simpl in VT. destruct VT as (vt & IX' & VTv).
+  intros ? ? ? ? ? IX STU. intros H V v i WFE.
   remember WFE as WFE'. clear HeqWFE'.
   destruct WFE as (? & ? & ? & BOUNDS).
-  edestruct BOUNDS as (CL & vt' & IX'' & BOUND). eauto.
-  rewrite IX'' in IX'. inversion IX'. subst vt'.
-  eapply STU; eauto.
+  edestruct BOUNDS as (CL & vt & IX' & LF & BOUND). eauto.
+  remember (pos i) as p. destruct p; simpl; intros VT.
+  - (* positive: val_type V v (TVar x) i -> val_type V v T i *)
+    destruct VT as (vt' & IX'' & VTv).
+    rewrite IX' in IX''. inversion IX''. subst vt'.
+    specialize (BOUND v i). rewrite <-Heqp in BOUND.
+    specialize (STU _ _ v i WFE'). rewrite <-Heqp in STU.
+    eapply STU. eapply BOUND. eauto.
+  - (* negative: val_type V v T i -> val_type V v (TVar x) i *)
+    exists vt. split. eauto.
+    specialize (BOUND v i). rewrite <-Heqp in BOUND.
+    specialize (STU _ _ v i WFE'). rewrite <-Heqp in STU.
+    eapply BOUND. eapply STU. eauto.
 Qed.
 
 Lemma sem_stp_all: forall G J T1 T2 T3 T4,
@@ -1037,17 +1084,27 @@ Lemma sem_stp_all: forall G J T1 T2 T3 T4,
   closed T3 (length J) ->
   sem_stp G J (TAll T1 T2) (TAll T3 T4).
 Proof.
-  intros ? ? ? ? ? ? ST31 ST24 CL3. intros H V v WFE VT.
-  destruct v; simpl in *; try contradiction.
-  intros vt BOUND3.
-  assert (BOUND1: forall v0, vt v0 -> val_type V v0 T1). {
-    intros. eapply ST31; eauto.
-  }
-  edestruct VT as (vy & STY & VY). eauto.
-  exists vy. split. eauto.
-  assert (length V = length J) as LV. eapply WFE.
-  eapply ST24; eauto.
-  rewrite <-LV. eapply envt_extend_tabs; eauto.
+  intros ? ? ? ? ? ? ST31 ST24 CL3. intros H V v i WFE.
+  destruct i; simpl.
+  - (* i = nil, pos = true *)
+    destruct v; simpl; intros VT; try contradiction.
+    intros vt LF BOUND3.
+    assert (BOUND1: forall v0 i0, if (pos i0)
+      then vt v0 i0 -> val_type V v0 T1 i0
+      else val_type V v0 T1 i0 -> vt v0 i0). {
+      intros v0 i0.
+      specialize (BOUND3 v0 i0).
+      specialize (ST31 _ _ v0 i0 WFE).
+      destruct (pos i0); intros.
+      - eapply ST31. eapply BOUND3. eauto.
+      - eapply BOUND3. eapply ST31. eauto.
+    }
+    edestruct (VT vt LF BOUND1) as (vy & STY & VY).
+    exists vy. split. eauto.
+    eapply (ST24 _ _ _ []); eauto.
+    eapply envt_extend_tabs; eauto.
+  - (* i = s :: _, non-nil: both sides are pos i = true *)
+    destruct s; remember (pos i) as p; destruct p; simpl; intros; eauto.
 Qed.
 
 Lemma sem_stp_dom_sub_right: forall G J T1 T2,
@@ -1102,10 +1159,13 @@ Theorem stp_fundamental: forall G J T1 T2,
     stp J T1 T2 ->
     sem_stp G J T1 T2.
 Proof.
-  intros. induction H.
+  intros ? ? ? ? H. revert G. induction H; intros.
   - eapply sem_stp_any; eauto. 
   - eapply sem_stp_bool; eauto. 
   - eapply sem_stp_fun; eauto.
+  - eapply sem_stp_varx; eauto.
+  - eapply sem_stp_var; eauto.
+  - eapply sem_stp_all; eauto.
   - eapply sem_stp_dom_sub_right; eauto.
   - eapply sem_stp_dom_sub_left; eauto.
   - eapply sem_stp_range_sub_right; eauto. 

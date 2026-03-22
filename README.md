@@ -83,6 +83,10 @@ STLC with parametric types (System F):
 - System F<: [stlc_tabs.v](pub/stlc_tabs3_stp.v)
 
 
+STLC with parametric types and higher-kinded types (System Fω):
+
+- System Fω [stlc_tabs_topr.v](pub/stlc_tabs_topr.v)
+
 
 ## Contributors
 

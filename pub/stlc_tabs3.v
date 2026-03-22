@@ -20,6 +20,12 @@ Notes:
 - Weakening and substitution can probably be simplified
 
 
+THIS FILE (via stlc_tabs2.v):
+- use a unified environment instead of separate G and J
+
+THIS FILE (via stlc_tabs.v):
+- use locally nameless bindings instead of pure DeBruijn
+
 *)
 
 Require Import Coq.Lists.List.

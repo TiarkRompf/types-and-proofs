@@ -1,4 +1,4 @@
-(* Full safety for F-Omega *)
+(* Full safety for System F-Omega *)
 
 (*
 
@@ -6,7 +6,11 @@ An LR-based termination and semantic soundness proof.
 
 Canonical big-step cbv semantics.
 
-Fw: combining type abstraction and type operators.
+Cmbining type abstraction and type operators (System F-Omega).
+
+
+THIS FILE (via stlc_tabs.v):
+- add type operators (TTAbs, TTApp) and type equivalence (eq_type)
 
 *)
 

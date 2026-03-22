@@ -21,7 +21,7 @@ Notes:
 
 
 THIS FILE (via stlc_tabs.v):
-- split single env into term (G) and type (J) env
+- use locally nameless bindings instead of pure DeBruijn
 
 *)
 

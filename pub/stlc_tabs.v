@@ -1,8 +1,8 @@
-(* Full safety for STLC *)
+(* Full safety for System F *)
 
 (*
 
-An LR-based termination and semantic soundness proof for STLC.
+An LR-based termination and semantic soundness proof.
 
 Canonical big-step cbv semantics.
 
@@ -14,13 +14,7 @@ Notes:
   terms and also for types. Substitution needs to adjust
   levels when going under binders.
 
-
-THIS FILE (via stlc_tabs2.v):
-- switch from locally nameless to pure de Bruijn levels
-
-THIS FILE (via stlc_tabs.v):
-- split single env into term (G) and type (J) env
-
+- We have different environments for terms (G) and types (J).
 
 *)
 

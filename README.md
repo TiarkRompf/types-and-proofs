@@ -78,9 +78,9 @@ STLC with parametric types (System F):
 
 - System F [stlc_tabs.v](pub/stlc_tabs.v)
 
-- Variations: [stlc_tabs2.v](pub/stlc_tabs2.v),  [stlc_tabs3.v](pub/stlc_tabs3.v)
+- Variations (locally nameless): [stlc_tabs2.v](pub/stlc_tabs2.v),  [stlc_tabs3.v](pub/stlc_tabs3.v)
 
-- System F<: [stlc_tabs.v](pub/stlc_tabs3_stp.v)
+- System F<: [stlc_tabs_stp.v](pub/stlc_tabs_stp.v)
 
 
 STLC with parametric types and higher-kinded types (System Fω):

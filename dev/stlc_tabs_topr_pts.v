@@ -43,11 +43,12 @@ Inductive tm : Type :=
 
   | TBool  : tm
   | TVar   : id -> tm
-  | TFun   : tm -> tm -> tm
+  | TFun   : tm -> tm -> tm  
   | TAll   : tm -> tm -> tm
-  | TKArr  : tm -> tm -> tm
-  | TTAbs  : tm -> tm -> tm
-  | TTApp  : tm -> tm -> tm
+
+(*| TKArr  : tm -> tm -> tm  (* TFun *)
+  | TTAbs  : tm -> tm -> tm  (* tabs *)
+  | TTApp  : tm -> tm -> tm  (* tapp *) *)
 
   | ttrue  : tm
   | tfalse : tm
@@ -55,7 +56,7 @@ Inductive tm : Type :=
   | tapp   : tm -> tm -> tm
   | tabs   : tm -> tm
   | ttapp  : tm -> tm(*ty!*) -> tm
-  | ttabs  : tm -> tm
+  | ttabs  : tm -> tm -> tm
 .
 
 Inductive vl: Type :=
@@ -86,7 +87,7 @@ Fixpoint teval(n: nat)(env: venv)(t: tm){struct n}: option (option vl) :=
       | tfalse     => Some (Some (vbool false))
       | tvar x     => Some (indexr x env)
       | tabs y     => Some (Some (vabs env y))
-      | ttabs y    => Some (Some (vtabs env y))
+      | ttabs _ y    => Some (Some (vtabs env y))
       | tapp ef ex   =>
           match teval n env ef with
           | None => None
@@ -127,16 +128,16 @@ Fixpoint splice (i: nat) (n:nat) (t: tm): tm :=
   | TVar x        => TVar (if x <? i then x else x + n)
   | TFun t1 t2    => TFun (splice i n t1) (splice i n t2)
   | TAll k t      => TAll k (splice i n t)
-  | TKArr t1 t2   => TKArr (splice i n t1) (splice i n t2)
+(*| TKArr t1 t2   => TKArr (splice i n t1) (splice i n t2)
   | TTAbs k t     => TTAbs k (splice i n t)
-  | TTApp t1 t2   => TTApp (splice i n t1) (splice i n t2)
+  | TTApp t1 t2   => TTApp (splice i n t1) (splice i n t2) *)
   | ttrue         => ttrue
   | tfalse        => tfalse
   | tvar x        => tvar x
   | tapp t1 t2    => tapp (splice i n t1) (splice i n t2)
   | tabs t1       => tabs (splice i n t1)
   | ttapp t1 t2   => ttapp (splice i n t1) (splice i n t2)
-  | ttabs t1      => ttabs (splice i n t1)
+  | ttabs t1 t2   => ttabs t1(*?*) (splice i n t2)
   end.
 
 Fixpoint subst (t: tm) (i: nat) (u:tm): tm :=
@@ -147,16 +148,16 @@ Fixpoint subst (t: tm) (i: nat) (u:tm): tm :=
   | TVar x        => if Nat.eq_dec x i then u else TVar (if x <? i then x else x-1)
   | TFun t1 t2    => TFun (subst t1 i u) (subst t2 i u)
   | TAll k t      => TAll k (subst t i (splice i 1 u))
-  | TKArr t1 t2   => TKArr (subst t1 i u) (subst t2 i u)
+(*| TKArr t1 t2   => TKArr (subst t1 i u) (subst t2 i u)
   | TTAbs k t     => TTAbs k (subst t i (splice i 1 u))
-  | TTApp t1 t2   => TTApp (subst t1 i u) (subst t2 i u)
+  | TTApp t1 t2   => TTApp (subst t1 i u) (subst t2 i u)*)
   | ttrue         => ttrue
   | tfalse        => tfalse
   | tvar x        => tvar x
   | tapp t1 t2    => tapp (subst t1 i u) (subst t2 i u)
   | tabs t1       => tabs (subst t1 i u)
   | ttapp t1 t2   => ttapp (subst t1 i u) (subst t2 i u)
-  | ttabs t1      => ttabs (subst t1 i u)
+  | ttabs t1 t2   => ttabs t1(*?*) (subst t2 i (splice i 1 u))
 end.
 
 (* ---------- LR definitions for types : kinds  ---------- *)
@@ -176,15 +177,17 @@ Inductive has_kind J : tm -> tm -> Type :=
 | k_all: forall K1 T2, (* (type -> term): type *)
     has_kind (K1::J) T2 TStar ->
     has_kind J (TAll K1 T2) TStar
-| k_karr: forall K1 K2,
-    has_kind J (TKArr K1 K2) TBox
+| k_karr: forall K1 K2, (* (type -> type): kind *)
+    has_kind J K1 TBox ->
+    has_kind J K2 TBox ->
+    has_kind J (TFun K1 K2) TBox
 | k_tabs: forall K1 T2 K2,
     has_kind (K1::J) T2 K2 ->
-    has_kind J (TTAbs K1 T2) (TKArr K1 K2)
+    has_kind J (ttabs K1 T2) (TFun K1 K2) (* (tabs K1 T2) (TPi K1 K2) *)
 | k_tapp: forall TF TX K1 K2,
-    has_kind J TF (TKArr K1 K2) ->
+    has_kind J TF (TFun K1 K2) ->
     has_kind J TX K1 ->
-    has_kind J (TTApp TF TX) K2
+    has_kind J (ttapp TF TX) K2
 .
 
 (* note: we can either include kn in the definition, or derive it later *)
@@ -207,14 +210,14 @@ Inductive eq_type : kenv -> tm -> tm -> Type :=
     eq_type J (TAll K1 T2) (TAll K1 T2')
 | q_tabs: forall J T2 T2' K1,
     eq_type (K1::J) T2 T2' ->
-    eq_type J (TTAbs K1 T2) (TTAbs K1 T2')
+    eq_type J (ttabs K1 T2) (ttabs K1 T2')
 | q_tapp: forall J T1 T2 T1' T2',
     eq_type J T1 T1' ->
     eq_type J T2 T2' ->
-    eq_type J (TTApp T1 T2) (TTApp T1' T2')
+    eq_type J (ttapp T1 T2) (ttapp T1' T2')
 | q_beta: forall J T1 T2 K1,
     has_kind J T1 K1 ->
-    eq_type J (TTApp (TTAbs K1 T2) T1) (subst T2 (length J) T1)
+    eq_type J (ttapp (ttabs K1 T2) T1) (subst T2 (length J) T1)
 .
 
 Inductive has_type : tenv -> kenv -> tm -> tm -> Type :=
@@ -239,7 +242,7 @@ Inductive has_type : tenv -> kenv -> tm -> tm -> Type :=
 | t_tabs: forall G J t K1 T2,
     has_type (map (splice (length J) 1) G) (K1::J) t T2 ->
     has_kind (K1::J) T2 TStar ->
-    has_type G J (ttabs t) (TAll K1 T2)
+    has_type G J (ttabs K1 t) (TAll K1 T2)
 | t_tapp: forall G J f K1 T1 T2,
     has_type G J f (TAll K1 T2) ->
     has_kind J T1 K1 ->
@@ -355,12 +358,12 @@ Proof.
   - rewrite IHe1_1, IHe1_2. auto.
   - rewrite IHe1_2. auto.
   - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1_2. auto.
+(*- rewrite IHe1_2. auto.
   - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
+  - rewrite IHe1_1, IHe1_2. auto.*)
   - rewrite IHe1. auto.
   - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1. auto.
+  - rewrite IHe1_2. auto. 
 Qed.
 
 Lemma splice_acc': forall e1 a b c,
@@ -374,12 +377,12 @@ Proof.
   - rewrite IHe1_1, IHe1_2. auto.
   - rewrite IHe1_2. auto.
   - rewrite IHe1_1, IHe1_2. auto.
+(*- rewrite IHe1_2. auto.
+  - rewrite IHe1_1, IHe1_2. auto.
+  - rewrite IHe1_1, IHe1_2. auto.*)
+  - rewrite IHe1. auto.
+  - rewrite IHe1_1, IHe1_2. auto.
   - rewrite IHe1_2. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1. auto.
 Qed.
 
 Lemma splice_zero: forall e1 a,
@@ -390,12 +393,12 @@ Proof.
   - rewrite IHe1_1, IHe1_2. auto.
   - rewrite IHe1_2. auto.
   - rewrite IHe1_1, IHe1_2. auto.
+(*- rewrite IHe1_2. auto.
+  - rewrite IHe1_1, IHe1_2. auto.
+  - rewrite IHe1_1, IHe1_2. auto.*)
+  - rewrite IHe1. auto.
+  - rewrite IHe1_1, IHe1_2. auto.
   - rewrite IHe1_2. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1. auto.
-  - rewrite IHe1_1, IHe1_2. auto.
-  - rewrite IHe1. auto.
 Qed.
 
 
@@ -460,7 +463,7 @@ Definition vt_all A (TF: A -> tpe): tpe :=
 Fixpoint val_sort (K: tm) : Type :=
   match K with
   | TStar => tpe
-  | TKArr K1 K2 => val_sort K1 -> val_sort K2
+  | TFun K1 K2 => val_sort K1 -> val_sort K2
   | _ => unit
   end.
 
@@ -518,7 +521,7 @@ Fixpoint val_type {J T K} (h : has_kind J T K) (W : env_kv J) {struct h}: val_so
       vt_pi (val_type h1 W) (fun vx => val_type h2 W)
   | k_all _ K1 T2 h, _, _ =>
       vt_all (val_sort K1) (fun VT1 => val_type h (envkv_cons _ _ VT1 W))
-  | k_karr _ K1 K2, _, _ =>
+  | k_karr _ _ _ K1 K2, _, _ =>
       tt
   | k_tabs _ K1 T2 K2 h, _, _ =>
       (fun VT1 => val_type h (envkv_cons _ _ VT1 W))
@@ -565,9 +568,12 @@ Proof.
   - eauto.
   - eauto.
   - eauto.
+  - specialize (IHa1 _ H1).
+    subst. eauto.
+  - eauto. 
   - specialize (IHa _ H2).
     subst. eauto.
-  - specialize (IHa2 _ H3).
+  - specialize (IHa2 _ H3).    
     subst.
     specialize (IHa1 _ H1).
     congruence.
@@ -587,7 +593,9 @@ Proof.
     subst. eauto.
   - specialize (IHa b).
     subst. eauto.
-  - eauto.
+  - specialize (IHa1 b1).
+    specialize (IHa2 b2).
+    subst. eauto. 
   - specialize (IHa b).
     subst. eauto.
   - specialize (hk_unique' _ _ _ a2 _ b2). intros. subst.
@@ -610,17 +618,15 @@ Proof.
   - (* TVar *) inversion H; subst. eapply k_var. replace (i+1) with (1+i). 2: lia.
     erewrite indexr_splice1. eauto.
   - (* TFun *) inversion H; subst. eapply k_fun. eauto. eauto.
+    (* TKArr *) eapply k_karr. eauto. eauto. 
   - (* TAll *) inversion H; subst. eapply k_all. eapply haskind_weaken1 with (J':=T1::J'). eauto.
-  - (* TKArr *) inversion H; subst. eapply k_karr.
-  - (* TTAbs *) inversion H; subst. eapply k_tabs. eapply haskind_weaken1 with (J':=T1::J'). eauto.
+  - (* TTAbs *) inversion H; subst. 
+  - (* TTApp *) inversion H; subst. 
+  - inversion H.
+  - inversion H.
+  - inversion H.
   - (* TTApp *) inversion H; subst. eapply k_tapp. eauto. eauto.
-  - inversion H.
-  - inversion H.
-  - inversion H.
-  - inversion H.
-  - inversion H.
-  - inversion H.
-  - inversion H.    
+  - (* TTAbs *) inversion H; subst. eapply k_tabs. eapply haskind_weaken1 with (J':=T1::J'). eauto.
 Defined.
 
 
@@ -847,10 +853,12 @@ Proof.
     subst h2'. eapply aux1.
   - (* TFun *)
     dependent destruction h1.
-    simpl in *.
+    + simpl in *.
     assert (val_type h1_1 h2 = val_type (haskind_weaken1 T1 J' J TStar K1 h1_1) (envkv_weaken J' J K1 vk h2)). eapply IHT1.
     assert (val_type h1_2 h2 = val_type (haskind_weaken1 T2 J' J TStar K1 h1_2) (envkv_weaken J' J K1 vk h2)). eapply IHT2.
     rewrite H, H0. eauto.
+    + (* TKArr *)
+    simpl. eauto.
   - (* TAll *)
     dependent destruction h1. simpl.
     assert (forall VT1, val_type h1 (envkv_cons (J'++J) T1 VT1 h2) =
@@ -865,9 +873,18 @@ Proof.
     intros. rewrite aux2. eauto.
     eapply functional_extensionality in H0.
     rewrite H0. eauto.
-  - (* TKArr *)
-    dependent destruction h1.
-    simpl. eauto.
+  - inversion h1. (* TKArr *)
+  - inversion h1. (* TTAbs *)
+  - inversion h1. (* TTApp *)
+  - inversion h1.
+  - inversion h1. 
+  - (* TTApp *)
+    dependent destruction h1. simpl.
+    specialize (IHT1) with (h1:=h1_1) (h2:=h2).
+    erewrite IHT1.
+    specialize (IHT2) with (h1:=h1_2) (h2:=h2).
+    erewrite IHT2.
+    eauto.
   - (* TTAbs *)
     dependent destruction h1.
     remember (k_tabs (J' ++ J) T1 T2 K2 h1) as h1'.
@@ -876,21 +893,7 @@ Proof.
     simpl in *. eapply functional_extensionality.
     intros.
     specialize IHT2 with (J':=T1::J') (h1:=h1') (h2:=(envkv_cons (J' ++ J) T1 x h2)) (vk:=vk).
-    rewrite aux2. eapply IHT2.
-  - (* TTApp *)
-    dependent destruction h1. simpl.
-    specialize (IHT1) with (h1:=h1_1) (h2:=h2).
-    erewrite IHT1.
-    specialize (IHT2) with (h1:=h1_2) (h2:=h2).
-    erewrite IHT2.
-    eauto.
-  - inversion h1.
-  - inversion h1. 
-  - inversion h1. 
-  - inversion h1. 
-  - inversion h1. 
-  - inversion h1. 
-  - inversion h1. 
+    rewrite aux2. eapply IHT2. 
 Qed.
 
 
@@ -957,20 +960,20 @@ Proof.
     + eapply haskind_extend_mult. eapply xxx4. eauto. eapply xxx3; eauto.
     + eapply k_var.
       rewrite indexr_splice2 in H2. eapply H2. eauto.
-  - (* TFun *) inversion H; subst. eapply k_fun. eauto. eauto.
+  - (* TFun *) inversion H; subst.
+    + eapply k_fun. eauto. eauto.
+    + (* TKArr *) eapply k_karr. eauto. eauto. 
   - (* TAll *) inversion H; subst. eapply k_all. rewrite splice_acc.
     eapply hask_subst with (J':=T2_1::J'). eauto. eauto.
-  - (* TKArr *) inversion H; subst. eapply k_karr.
+  - (* TKArr *) inversion H; subst. (* eapply k_karr. eauto. eauto. *)
+  - (* TTAbs *) inversion H; subst. (*eapply k_tabs. rewrite splice_acc.
+    eapply hask_subst with (J':=T2_1::J'). eauto. eauto.*)
+  - inversion H. 
+  - inversion H. 
+  - inversion H. 
+  - (* TTApp *) inversion H; subst. eapply k_tapp. eauto. eauto.
   - (* TTAbs *) inversion H; subst. eapply k_tabs. rewrite splice_acc.
     eapply hask_subst with (J':=T2_1::J'). eauto. eauto.
-  - (* TTApp *) inversion H; subst. eapply k_tapp. eauto. eauto.
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
 Defined.
 
 Lemma hask_subst1: forall J T2 T1 K1,
@@ -1037,9 +1040,10 @@ Proof.
     + dependent destruction hx1'.
       simpl. subst h2'. eapply aux1b''. eauto.
 
-  - (*TFun*) dependent destruction h1f. simpl.
-    assert (H21: val_type h1f1 (envkv_weaken J' J K1 T1K WFJ) = val_type (hask_subst T2_1 J' J T1 K1 TStar h1f1 HK1) WFJ). apply IHT2_1. auto. rewrite H21.
+  - (*TFun*) dependent destruction h1f; simpl.
+    + assert (H21: val_type h1f1 (envkv_weaken J' J K1 T1K WFJ) = val_type (hask_subst T2_1 J' J T1 K1 TStar h1f1 HK1) WFJ). apply IHT2_1. auto. rewrite H21.
     assert (H22: val_type h1f2 (envkv_weaken J' J K1 T1K WFJ) = val_type (hask_subst T2_2 J' J T1 K1 TStar h1f2 HK1) WFJ). apply IHT2_2. auto. rewrite H22. auto.
+    + (*TKArr*) eauto. 
   - (*TAll*) dependent destruction h1f. simpl.
     assert (HVT: forall VT1, val_type (haskind_extend_mult (T2_1 :: J') T1 J K1 HK1) (envkv_cons (J' ++ J) T2_1 VT1 WFJ) = val_type (haskind_extend_mult J' T1 J K1 HK1) WFJ). { intros.
       simpl. elim_eq_rect. simpl. elim_eq_rect. simpl.
@@ -1054,7 +1058,15 @@ Proof.
       specialize (IHT2_2 H). auto.
     }
     eapply functional_extensionality in HV. rewrite HV. auto.
-  - (*TKArr*) dependent destruction h1f. simpl. eauto.
+  - inversion h1f. (*TKArr*) 
+  - inversion h1f.
+  - inversion h1f.
+  - inversion h1f.
+  - inversion h1f.
+  - (*TTApp*) dependent destruction h1f. simpl.
+    specialize (IHT2_2) with (h1f := h1f2). specialize (IHT2_2 T1K WFJ T1 HK1 H). rewrite IHT2_2.
+    remember ((val_type (hask_subst T2_2 J' J T1 K1 K0 h1f2 HK1) WFJ)) as VT2.
+    specialize (IHT2_1) with (h1f := h1f1). specialize (IHT2_1 T1K WFJ T1 HK1 H). rewrite IHT2_1. auto.
   - (*TTAbs*) dependent destruction h1f. remember (k_tabs (J' ++ K1 :: J) T2_1 T2_2 K2 h1f) as h1f'.
     dependent destruction h1f'.
     replace h1f with h1f' in * by (eapply hk_unique).
@@ -1068,17 +1080,6 @@ Proof.
     specialize (IHT2_2 (T2_1 :: J')) with (h1f := h1f') (WFJ := (envkv_cons (J' ++ J) T2_1 vk WFJ)) (T1K := T1K). specialize (IHT2_2 T1 HK1 H).
     replace (val_type h1f' (envkv_weaken (T2_1 :: J') J K1 T1K (envkv_cons (J' ++ J) T2_1 vk WFJ))) with (val_type (hask_subst T2_2 (T2_1 :: J') J T1 K1 K2 h1f' HK1) (envkv_cons (J' ++ J) T2_1 vk WFJ)). (*using IHT2_2*)
     auto.
-  - (*TTApp*) dependent destruction h1f. simpl.
-    specialize (IHT2_2) with (h1f := h1f2). specialize (IHT2_2 T1K WFJ T1 HK1 H). rewrite IHT2_2.
-    remember ((val_type (hask_subst T2_2 J' J T1 K1 K0 h1f2 HK1) WFJ)) as VT2.
-    specialize (IHT2_1) with (h1f := h1f1). specialize (IHT2_1 T1K WFJ T1 HK1 H). rewrite IHT2_1. auto.
-  - inversion h1f.
-  - inversion h1f.
-  - inversion h1f.
-  - inversion h1f.
-  - inversion h1f.
-  - inversion h1f.
-  - inversion h1f.
 Qed.
 
 
@@ -1177,18 +1178,17 @@ Proof.
     dependent destruction H. bdestruct (i <? (length J)). constructor.
       rewrite indexr_skips; auto. rewrite indexr_skips in e; auto. rewrite indexr_skip; auto. simpl; lia.
       constructor. replace i with (S (i - 1)). rewrite <- indexr_insert_ge. auto. lia. lia.
-  - dependent destruction H. constructor; auto. eapply IHT2_1; eauto. eapply IHT2_2; eauto.
+  - dependent destruction H.
+    + constructor; auto. eapply IHT2_1; eauto. eapply IHT2_2; eauto.
+    + constructor. eapply IHT2_1; eauto. eapply IHT2_2; eauto.
   - dependent destruction H. constructor; auto. specialize (IHT2_2 J (T2_1 :: J') T1 K1 TStar). apply IHT2_2; auto. simpl. rewrite splice_acc in H. auto.
-  - dependent destruction H. constructor.
-  - dependent destruction H. constructor; auto. specialize (IHT2_2 J (T2_1 :: J') T1 K1 K2). apply IHT2_2; auto. simpl. rewrite splice_acc in H. auto.
+  - inversion H.
+  - inversion H.
+  - inversion H. 
+  - inversion H. 
+  - inversion H. 
   - dependent destruction H. apply k_tapp with (K1 := K0). eapply IHT2_1; eauto. eapply IHT2_2; eauto.
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
-  - inversion H. 
+  - dependent destruction H. constructor; auto. specialize (IHT2_2 J (T2_1 :: J') T1 K1 K2). apply IHT2_2; auto. simpl. rewrite splice_acc in H. auto.
 Qed.
 
 Lemma has_kind_subst1_inverse : forall J T1 T2 K1 K,
@@ -1206,8 +1206,8 @@ Proof.
   - specialize (IHheq K); destruct IHheq. split; auto.
   - specialize (IHheq1 K); destruct IHheq1. specialize (IHheq2 K); destruct IHheq2. split; auto.
   - specialize (IHheq1 K); destruct IHheq1. specialize (IHheq2 K); destruct IHheq2. split; intros.
-    dependent destruction H. constructor; auto.
-    dependent destruction H. constructor; auto.
+    dependent destruction H. constructor; auto. constructor; auto.
+    dependent destruction H. constructor; auto. constructor; auto.
   - specialize (IHheq K); destruct IHheq. split; intros.
     dependent destruction H. constructor; auto.
     dependent destruction H. constructor; auto.
@@ -1215,8 +1215,8 @@ Proof.
     dependent destruction H. constructor. specialize (IHheq K2); destruct IHheq. auto.
     dependent destruction H. constructor. specialize (IHheq K2); destruct IHheq. auto.
   - split; intros; dependent destruction H.
-    apply k_tapp with (K1 := K1). specialize (IHheq1 (TKArr K1 K2)); destruct IHheq1. auto. specialize (IHheq2 K1); destruct IHheq2; auto.
-    apply k_tapp with (K1 := K1). specialize (IHheq1 (TKArr K1 K2)); destruct IHheq1. auto. specialize (IHheq2 K1); destruct IHheq2; auto.
+    apply k_tapp with (K1 := K1). specialize (IHheq1 (TFun K1 K2)); destruct IHheq1. auto. specialize (IHheq2 K1); destruct IHheq2; auto.
+    apply k_tapp with (K1 := K1). specialize (IHheq1 (TFun K1 K2)); destruct IHheq1. auto. specialize (IHheq2 K1); destruct IHheq2; auto.
   - split; intros.
     dependent destruction H. dependent destruction H. apply hask_subst1' with (K1 := K0); auto.
     apply (k_tapp) with (K1:=K1); auto. constructor.
@@ -1315,7 +1315,7 @@ Qed.
 Lemma sem_tabs: forall G J t K1 T2,
     sem_type (map (splice (length J) 1) G) (K1::J) t T2 ->
     has_kind (K1::J) T2 TStar ->
-    sem_type G J (ttabs t) (TAll K1 T2).
+    sem_type G J (ttabs K1 t) (TAll K1 T2).
 Proof.
   intros ? ? ? ? ? HY W2. intros E WFJ WFE.
   eexists _.
@@ -1366,7 +1366,7 @@ Proof.
   - apply val_type_irrel; auto.
   - specialize (IHeq_type WFJ _ h2 h1). destruct IHeq_type. split; auto.
   - specialize (eq_type_preserve_kind' H h1). intros. specialize (IHeq_type2 WFJ K H1 h2). specialize (IHeq_type1 WFJ K h1 H1). rewrite IHeq_type1. auto.
-  - dependent destruction h1. dependent destruction h2. simpl. f_equal.
+  - dependent destruction h1; dependent destruction h2; simpl. 2: eauto. f_equal.
     apply IHeq_type1.
     apply functional_extensionality. intros _. apply IHeq_type2.
   - dependent destruction h1. dependent destruction h2. simpl. f_equal.
@@ -1377,7 +1377,7 @@ Proof.
     specialize (IHeq_type (envkv_cons J K1 x WFJ) K2 h1 h2). auto.
   - dependent destruction h1. dependent destruction h2. simpl.
     specialize (eq_type_preserve_kind' H0 h1_2); intros. specialize (hk_unique' _ _ _ h2_2 _ H1). clear H1. intros; subst.
-    specialize (IHeq_type1 WFJ (TKArr K1 K2) h1_1 h2_1). specialize (IHeq_type2 WFJ (K1) h1_2 h2_2).
+    specialize (IHeq_type1 WFJ (TFun K1 K2) h1_1 h2_1). specialize (IHeq_type2 WFJ (K1) h1_2 h2_2).
     rewrite IHeq_type2. rewrite IHeq_type1. auto.
   - remember (subst T2 (length J) T1).
     replace T1 with ((splice (length J) 0 T1)) in Heqt. 2: eapply splice_zero.

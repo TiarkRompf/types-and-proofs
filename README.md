@@ -51,6 +51,9 @@ STLC with higher-order refs:
 
 STLC with effects:
 
+- Stlc with boolean refs and boolean yes/no effects:: [stlc_refb_effb.v](pub/stlc_refb_effb.v)
+
+
 - Stlc with boolean refs, binary LR and boolean yes/no effects: [stlc_refb_effb_equiv.v](pub/stlc_refb_effb_equiv.v)
 
   	Includes a proof of store-invariance for pure expressions.
@@ -82,10 +85,14 @@ STLC with parametric types (System F):
 
 - System F<: [stlc_tabs_stp.v](pub/stlc_tabs_stp.v)
 
+- System F<: with boolean refs und [stlc_tabs_stp_refb_effb.v](pub/stlc_tabs_stp_refb_effb.v)
+
 
 STLC with parametric types and higher-kinded types (System Fω):
 
 - System Fω [stlc_tabs_topr.v](pub/stlc_tabs_topr.v)
+
+- System Fω<: [stlc_tabs_topr_stp.v](pub/stlc_tabs_topr_stp.v)
 
 
 ## Contributors

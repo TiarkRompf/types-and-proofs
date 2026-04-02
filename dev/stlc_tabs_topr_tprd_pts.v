@@ -28,6 +28,7 @@ Import ListNotations.
 Require Import tactics.
 Require Import env.
 
+
 Module STLC.
 
 (* ---------- language syntax ---------- *)
@@ -162,18 +163,517 @@ end.
 
 (* ---------- LR definitions for types : kinds  ---------- *)
 
+(* terms in CC remain stratified:
+
+   4. TBox
+
+   3. K: TBox              <-- kinds
+
+      K ::= TStar | TPi T K | TPi K1 K2
+
+   2. T: K with K: TBox    <-- types (T: TStar), constructors (T: TStar -> TStar)
+
+      T ::= tvar x | TPi T1 T2 | TPi K T | tabs T1 T2 | tapp T t | tabs K T | tapp T1 T2
+
+   1. t: T with T: TStar   <-- terms, objects
+
+      t ::= tvar x | tabs T t | tapp t1 t2 | tabs K t | tapp t T
+*)
+
+
+Module XX1.
+
+Definition splice1 (J: list (list tm)) := map (map (splice (length J) 1)) J. 
+Definition spl (T: list tm) (J: list (list tm)) := map (map (splice (length J) 1)) (T::J). 
+
+Inductive has_type1 (J: list (list tm)) : list tm -> Type :=
+(* box *)
+| K_box:
+    has_type1 J []
+
+(* kinds *)
+| K_star:
+    has_type1 J [TStar]
+
+| K_pi_p: forall T1 K1 K2,
+    has_type1 J [T1; K1] ->
+    has_type1 (spl [T1; K1] J) [K2] ->
+    has_type1 J [(TPi T1 K2)]
+| K_pi_w: forall K1 K2,
+    has_type1 J [K1] ->
+    has_type1 (spl [K1] J) [K2] ->
+    has_type1 J [(TPi K1 K2)]
+              
+(* constructors *)
+| T_var: forall x K,
+    indexr x J = Some [K] ->
+    has_type1 J [tvar x; K]
+              
+| T_pi_s: forall T1 K1 T2 K2,
+    has_type1 J [T1; K1] ->
+    has_type1 (spl [T1; K1] J) [T2; K2] ->
+    has_type1 J [(TPi T1 K2); TStar]
+| T_pi_f: forall T1 K1 T2 K2,
+    has_type1 J [K1] ->
+    has_type1 (spl [K1] J) [T2; K2] ->
+    has_type1 J [(TPi T1 K2); TStar]
+              
+| T_abs_p: forall T1 K1 T2 K2,
+    has_type1 J [T1; K1] ->
+    has_type1 (spl [T1; K1] J) [T2; K2] ->
+    has_type1 J [ttabs T1 T2; TPi T1 K2]
+| T_app_p: forall T1 t2 T2 K3,
+    has_type1 J [T1; TPi T2 K3] ->
+    has_type1 J [t2; T2; TStar] ->
+    has_type1 J [ttapp T1 t2; K3]
+              
+| T_abs_w: forall K1 T2 K2,
+    has_type1 J [K1] ->
+    has_type1 (spl [K1] J) [T2; K2] ->
+    has_type1 J [ttabs K1 T2; TPi K1 K2]
+| T_app_w: forall T1 K1 T2 K2 K3,
+    has_type1 J [T1; TPi K2 K3] ->
+    has_type1 J [T2; K2] ->
+    has_type1 J [ttapp K1 T2; K3]
+
+
+(* terms *)
+| t_var: forall x T,
+    indexr x J = Some [T; TStar] ->
+    has_type1 J [tvar x; T; TStar]
+              
+| t_abs_s: forall T1 t2 T2,
+    has_type1 J [T1; TStar] ->
+    has_type1 (spl [T1; TStar] J) [t2; T2; TStar] ->
+    has_type1 J [ttabs T1 t2; TPi T1 T2; TStar]
+| t_app_s: forall t1 t2 T2 T3,
+    has_type1 J [t1; TPi T2 T3; TStar] ->
+    has_type1 J [t2; T2; TStar] ->
+    has_type1 J [ttapp t1 t2; T3; TStar]
+
+| t_abs_f: forall K1 t2 T2,
+    has_type1 J [K1] ->
+    has_type1 (spl [K1] J) [t2; T2; TStar] ->
+    has_type1 J [ttabs K1 t2; TPi K1 T2; TStar]
+| t_app_f: forall t1 T2 K2 T3,
+    has_type1 J [t1; TPi K2 T3; TStar] ->
+    has_type1 J [T2; K2] ->
+    has_type1 J [ttapp t1 T2; T3; TStar]
+
+(* TODO: equiv !! *)
+
+.
+
+
+Lemma hast_upkind: forall G T KS,
+    has_type1 G (T::KS) ->
+    has_type1 G KS.
+Proof.
+  intros. remember (T::KS) as KS'. revert T KS HeqKS'. induction H; intros; inversion HeqKS'; subst.
+  - eapply K_box.
+  - eapply K_box.
+  - eapply K_box.
+  - admit. (* T_var *)
+  - eapply K_star.
+  - eapply K_star.
+  - eapply K_pi_p. eauto. eauto.
+  - assert (has_type1 J [TPi T2 K3]). eauto. inversion H1. subst. 
+Admitted.
+
+End XX1.
+
+Definition splice1 (J: list (tm * nat)) := map (fun p => ((splice (length J) 1 (fst p), (snd p)))) J. 
+
+Definition spl (p: tm * nat) (J: list (tm * nat)) := splice1 (p::J). 
+
+
+Inductive has_type1 (J: list (tm*nat)) : tm -> tm -> nat -> Type :=
+
+(* kinds: level 0 *)
+| K_star:
+    has_type1 J TStar TBox 0
+
+| K_pi_p: forall T1 K1 K2,
+    has_type1 J T1 K1 1 ->
+    has_type1 (spl (T1,1) J) K2 TBox 0 ->
+    has_type1 J (TPi T1 K2) TBox 0
+| K_pi_w: forall K1 K2,
+    has_type1 J K1 TBox 0 ->
+    has_type1 (spl (K1,0) J) K2 TBox 0 ->
+    has_type1 J (TPi K1 K2) TBox 0
+              
+(* constructors: level 1 *)
+| T_var: forall x K,
+    indexr x J = Some (K,0) ->
+    has_type1 J (tvar x) K 1
+              
+| T_pi_s: forall T1 K1 T2 K2,
+    has_type1 J T1 K1 1 ->
+    has_type1 (spl (T1, 1) J) T2 K2 1 ->
+    has_type1 J (TPi T1 K2) TStar 1
+| T_pi_f: forall T1 K1 T2 K2,
+    has_type1 J K1 TBox 0 ->
+    has_type1 (spl (K1,0) J) T2 K2 1 ->
+    has_type1 J (TPi T1 K2) TStar 1
+              
+| T_abs_p: forall T1 K1 T2 K2,
+    has_type1 J T1 K1 1 ->
+    has_type1 (spl (T1, 1) J) T2 K2 1 ->
+    has_type1 J (ttabs T1 T2) (TPi T1 K2) 1
+| T_app_p: forall T1 t2 T2 K3,
+    has_type1 J T1 (TPi T2 K3) 1 ->
+    has_type1 J t2 T2 2 ->
+    has_type1 J (ttapp T1 t2) (subst K3 (length J) t2) 1
+              
+| T_abs_w: forall K1 T2 K2,
+    has_type1 J K1 TBox 0 ->
+    has_type1 (spl (K1, 0) J) T2 K2 1 ->
+    has_type1 J (ttabs K1 T2) (TPi K1 K2) 1
+| T_app_w: forall T1 K1 T2 K2 K3,
+    has_type1 J T1 (TPi K2 K3) 1 ->
+    has_type1 J T2 K2 1 ->
+    has_type1 J (ttapp K1 T2) (subst K3 (length J) T2) 1
+
+
+(* terms: level 2 *)
+| t_var: forall x T,
+    indexr x J = Some (T,1) ->
+    has_type1 J (tvar x) T 2
+              
+| t_abs_s: forall T1 t2 T2,
+    has_type1 J T1 TStar 1 ->
+    has_type1 (spl (T1,1) J) t2 T2 2 ->
+    has_type1 J (ttabs T1 t2) (TPi T1 T2) 2
+| t_app_s: forall t1 t2 T2 T3,
+    has_type1 J t1 (TPi T2 T3) 2 ->
+    has_type1 J t2 T2 2 ->
+    has_type1 J (ttapp t1 t2) (subst T3 (length J) t2) 2
+
+| t_abs_f: forall K1 t2 T2,
+    has_type1 J K1 TBox 0 ->
+    has_type1 (spl (K1,0) J) t2 T2 2 ->
+    has_type1 J (ttabs K1 t2) (TPi K1 T2) 2
+| t_app_f: forall t1 T2 K2 T3,
+    has_type1 J t1 (TPi K2 T3) 2 ->
+    has_type1 J T2 K2 1 ->
+    has_type1 J (ttapp t1 T2) (subst T3 (length J) T2) 2
+
+(* TODO: equiv !! *)
+
+.
+
+
+
+
+
+
+Inductive has_kind J : tm -> tm -> Type :=
+(*| k_star:
+    has_kind J TStar TBox*)
+| k_bool:
+    has_kind J TBool TStar
+(*| k_var1: forall x T, (* is this needed? unclear ... *)
+    indexr x J = Some (T,0) ->
+    has_kind J (TVar x) TStar*)
+| k_var: forall x K,
+    indexr x J = Some (K,0) -> (* true: it is a kind *)
+    has_kind J (tvar x) K
+| k_fun: forall T1 T2, (* (term -> term): type *)
+    has_kind J T1 TStar ->
+    has_kind J T2 TStar ->
+    has_kind J (TFun T1 T2) TStar
+| k_all: forall K1 T2, (* (type -> term): type *)
+    has_kind ((K1,0)::J) T2 TStar ->
+    has_kind J (TAll K1 T2) TStar
+| k_pi1: forall T1 T2, (* (term -> term): type *)
+    has_kind J T1 TStar ->
+    has_kind ((T1,1)::J) T2 TStar ->
+    has_kind J (TPi T1 T2) TStar
+(* | k_pi2: forall T1 T2, (* (term -> type): type *)
+    has_kind J T1 TStar ->
+    has_kind (T1::J) T2 TBox ->
+    has_kind J (TPi T1 T2) TBox *)
+(*| k_karr: forall K1 K2, (* (type -> type): kind *)
+    has_kind J K1 TBox ->
+    has_kind J K2 TBox ->
+    has_kind J (TFun K1 K2) TBox*)
+| k_tabs: forall K1 T2 K2,
+    has_kind ((K1,0)::J) T2 K2 ->
+    has_kind J (ttabs K1 T2) (TFun K1 K2) (* (tabs K1 T2) (TPi K1 K2) *)
+| k_tapp: forall TF TX K1 K2,
+    has_kind J TF (TFun K1 K2) ->
+    has_kind J TX K1 ->
+    has_kind J (ttapp TF TX) K2
+.
+
+
+
+Lemma hast_kind1: forall J T1 K1,
+  has_type1 J T1 K1 1 ->
+  has_kind J T1 K1.
+Proof.
+  intros. remember 1. revert Heqn. induction H; try lia; intros; subst.
+  - eapply k_var. eauto.
+  - eapply k_pi1. eauto. admit. admit.
+  - admit.
+  - eapply k_tabs. 
+
+Admitted.
+
+
+
+
+
+Lemma hast_subst1: forall J t2 T2 K1 K3 n m SX,
+  has_type1 J t2 T2 (S n) ->
+  has_type1 J T2 K1 n ->
+  has_type1 (spl (T2, n) J) K3 SX m ->
+  has_type1 J (subst K3 (length J) t2) SX m.
+Proof.
+Admitted.
+
+Lemma hast_upkind1: forall G T K,
+    has_type1 G T K 1 ->
+    has_type1 G K TBox 0.
+Proof.
+  intros. remember 1. revert Heqn. induction H; try lia; intros; subst.
+  - admit.
+  - eapply K_star.
+  - eapply K_star.
+  - eapply K_pi_p. eauto. eauto. 
+  - specialize (IHhas_type1_1 eq_refl). inversion IHhas_type1_1; subst.
+    eapply hast_subst1; eauto.
+    eapply hast_subst1; eauto. 
+
+
+  Lemma hast_upkind: forall G t T,
+    has_type1 G t T 2 ->
+    has_type1 G T TStar 1.
+Proof.
+  intros. inversion H; subst. 
+  - admit. (* T_var *)
+  - eapply T_pi_s. eauto. econstructor. eauto. eauto. 
+  - eapply K_star.
+  - eapply K_pi_p. eauto. eauto.
+  - assert (has_type1 J [TPi T2 K3]). eauto. inversion H1. subst. 
+Admitted.
+
+
+
+
+
+
+
+Inductive skel : Type :=
+| s_star: skel
+| s_arr: skel -> skel -> skel
+.
+
+Inductive class : Type :=
+| c_trm: class
+| c_typ: skel -> class
+| c_knd: skel -> class
+.
+
+  Definition cv_skel (c : class) : skel :=
+    match c with
+    | c_knd s => s
+    | _ => s_star
+    end.
+
+  Definition typ_skel (c : class) : skel :=
+    match c with
+    | c_typ s => s
+    | _ => s_star
+    end.
+
+
+Fixpoint cl_term (t: tm) (J: list class) := 
+  match t with
+  | TStar => c_knd s_star
+  | TBox => c_knd s_star
+  | tvar x =>
+      match indexr x J with
+      | Some (c_knd s) => c_typ s
+      | _ => c_trm
+      end
+  | ttabs A B =>
+      let J' := (cl_term A J)::J in
+      match cl_term B J', cl_term A J with
+      | c_typ s2, c_knd s1 => c_typ (s_arr s1 s2)
+      | c_typ s, _ => c_typ s
+      | c_knd _, _ => c_knd s_star
+      | c_trm, _ => c_trm
+      end
+  | ttapp u v =>
+      match cl_term u J, cl_term v J with
+      | c_typ (s_arr s1 s2), c_typ s => c_typ s2
+      | c_typ s, _ => c_typ s
+      | c_knd _, _ => c_knd s_star
+      | c_trm, _ => c_trm
+      end
+  | TPi T U =>
+      let J' := (cl_term T J)::J in
+      match cl_term U J', cl_term T J with
+      | c_knd s2, c_knd s1 => c_knd (s_arr s1 s2)
+      | c_knd s, _ => c_knd s
+      | c_typ s, _ => c_typ s
+      | c_trm, _ => c_trm
+      end
+  | _ => c_trm
+  end.
+
+  Fixpoint Can (K : skel) : Type :=
+    match K with
+    | s_star => tm -> Prop (* vl ? *)
+    | s_arr s1 s2 => Can s1 -> Can s2
+    end.
+
+  Inductive Int_K : Type :=
+    | iK : forall s : skel, Can s -> Int_K
+    | iT : Int_K.
+
+  Definition intP := list Int_K.
+
+  Definition sn: tm -> Prop := fun t => True. (* XXX *)
+  
+  Fixpoint default_can (s : skel) : Can s :=
+    match s as ss return (Can ss) with
+    | s_star => sn
+    | s_arr s1 s2 => fun _ : Can s1 => default_can s2
+    end.
+
+
+  Lemma EQ_skel : forall a b : skel, {a = b} + {a <> b}.
+induction a as [| s H s0 H0]; simple destruct b; intros.
+left; auto with core.
+
+right; red in |- *; intros neq; discriminate neq.
+
+right; red in |- *; intros neq; discriminate neq.
+
+elim H with s1; [ intro Heq1 | intro Hneq1 ].
+elim Heq1.
+elim H0 with s2; [ intro Heq2 | intro Hneq2 ].
+elim Heq2.
+left; auto with core.
+
+right; red in |- *; intros; apply Hneq2.
+injection H1; trivial.
+
+right; red in |- *; intros; apply Hneq1.
+injection H1; trivial.
+Qed.
+
+  
+  Definition coerce_CR (s : skel) (i : Int_K) : Can s :=
+    match i with
+    | iK si Ci =>
+        match EQ_skel si s with
+        | left y =>
+            match y in (_ = x) return (Can x) with
+            | refl_equal => Ci
+            end
+        | _ => default_can s
+        end
+    | _ => default_can s
+    end.
+
+  Definition class_of_ik (ik : Int_K) :=
+    match ik with
+    | iK s _ => c_knd s
+    | iT => c_typ s_star
+    end.
+
+    Definition cls_of_int : intP -> list class := map class_of_ik.
+
+  Definition ext_ik (T : tm) (ip : intP) (s : skel) 
+    (C : Can s) :=
+    match cl_term T (cls_of_int ip) with
+    | c_knd _ => iK s C
+    | _ => iT
+    end.
+
+
+  Definition int_cons (T : tm) (ip : intP) (s : skel) 
+    (C : Can s) := (ext_ik T ip s C) :: ip.
+
+
+  (*Definition def_cons (T : tm) (I : intP) : intP :=
+    int_cons T I _ (default_can (cv_skel (cl_term T (cls_of_int I)))).
+*)
+  Axiom def_cons: forall (T : tm) (I : intP), intP.
+    
+
+  Fixpoint is_can (s : skel) : Can s -> Prop :=
+    match s as s0 return (Can s0 -> Prop) with
+    | PROP => fun X : tm -> Prop => is_cand X
+    | PROD s1 s2 =>
+        fun C : Can s1 -> Can s2 =>
+        forall X : Can s1, is_can s1 X -> eq_can s1 X X -> is_can s2 (C X)
+    end.
+
+  
+  Definition Pi (s : skel) (X : tm -> Prop) (F : Can (s_arr s s_star))
+    (t : tm) : Prop :=
+    forall u : tm,
+    X u -> forall C : Can s, is_can s C -> eq_can s C C -> F C (ttapp t u).
+
+
+  Fixpoint int_typ (T : tm) : intP -> forall s : skel, Can s :=
+    fun (ip : intP) (s : skel) =>
+    match T with
+    | TStar => default_can s
+    | TBox => default_can s
+    | tvar n =>
+        let xx := match indexr n ip with
+                  | Some x => x
+                  | _ => iK s_star sn
+                  end in
+        coerce_CR s xx
+    | ttabs A t =>
+        match cl_term A (cls_of_int ip) with
+        | c_knd _ =>
+            match s as x return (Can x) with
+            | s_arr s1 s2 =>
+                fun C : Can s1 => int_typ t ((iK s1 C) :: ip) s2
+            | PROP => default_can PROP
+            end
+        | c_typ _ => int_typ t (def_cons A ip) s
+        | _ => default_can s
+        end
+    | ttapp u v =>
+        match cl_term v (cls_of_int ip) with
+        | c_trm => int_typ u ip s
+        | c_typ sv => int_typ u ip (s_arr sv s) (int_typ v ip sv)
+        | _ => default_can s
+        end
+    | TPi A B =>
+        match s as x return (Can x) with
+        | PROP =>
+            let s := cv_skel (cl_term A (cls_of_int ip)) in
+            Pi s (int_typ A ip PROP)
+              (fun C => int_typ B (int_cons A ip s C) PROP)
+        | PROD s1 s2 => default_can (PROD s1 s2)
+        end
+    end.
+
+
+
+
+
 (* kinds: * | K -> K *)
 
 Inductive has_kind J : tm -> tm -> Type :=
-| k_star:
-    has_kind J TStar TBox
+(*| k_star:
+    has_kind J TStar TBox*)
 | k_bool:
     has_kind J TBool TStar
 | k_var1: forall x T, (* is this needed? unclear ... *)
     indexr x J = Some (false,T) ->
     has_kind J (TVar x) TStar
 | k_var: forall x K,
-    indexr x J = Some (true,K) ->
+    indexr x J = Some (true,K) -> (* true: it is a kind *)
     has_kind J (TVar x) K
 | k_fun: forall T1 T2, (* (term -> term): type *)
     has_kind J T1 TStar ->
@@ -190,10 +690,10 @@ Inductive has_kind J : tm -> tm -> Type :=
     has_kind J T1 TStar ->
     has_kind (T1::J) T2 TBox ->
     has_kind J (TPi T1 T2) TBox *)
-| k_karr: forall K1 K2, (* (type -> type): kind *)
+(*| k_karr: forall K1 K2, (* (type -> type): kind *)
     has_kind J K1 TBox ->
     has_kind J K2 TBox ->
-    has_kind J (TFun K1 K2) TBox
+    has_kind J (TFun K1 K2) TBox*)
 | k_tabs: forall K1 T2 K2,
     has_kind ((true,K1)::J) T2 K2 ->
     has_kind J (ttabs K1 T2) (TFun K1 K2) (* (tabs K1 T2) (TPi K1 K2) *)
@@ -588,8 +1088,8 @@ Defined.
 
 Fixpoint val_type {J T K} (h : has_kind J T K) (W : env_kv J) {struct h}: val_sort K :=
   match h, T, K return val_sort K with
-  | k_star _, _, _ =>
-      tt
+(*  | k_star _, _, _ =>
+      tt*)
   | k_bool _, _, _ =>
       vt_bool
   | k_var1 _ x K IX, _, _ =>
@@ -602,8 +1102,8 @@ Fixpoint val_type {J T K} (h : has_kind J T K) (W : env_kv J) {struct h}: val_so
       vt_pi (val_type h1 W) (fun vx => val_type h2 (envkv_cons _ _ ((fun x => x = vx):val_sort1 (false,T1)) W))
   | k_all _ K1 T2 h, _, _ =>
       vt_all (val_sort K1) (fun VT1 => val_type h (envkv_cons _ _ (VT1:val_sort1 (true,K1)) W))
-  | k_karr _ _ _ K1 K2, _, _ =>
-      tt
+(*  | k_karr _ _ _ K1 K2, _, _ =>
+      tt*)
   | k_tabs _ K1 T2 K2 h, _, _ =>
       (fun VT1 => val_type h (envkv_cons _ _ (VT1: val_sort1 (true,K1)) W))
   | k_tapp _ TF TX K1 K2 hf hx, _, _ =>
@@ -651,11 +1151,6 @@ Proof.
   - congruence. 
   - eauto.
   - eauto.
-  - eauto.
-  - eauto. 
-  - specialize (IHa1 _ H1).
-    subst. eauto.
-  - eauto.
   - specialize (IHa _ H2).
     subst. eauto.
   - specialize (IHa2 _ H3).    
@@ -671,7 +1166,6 @@ Proof.
   intros GV T K a.
   induction a; intros b; dependent destruction b.
   - eauto.
-  - eauto.
   - assert (T = T0). congruence. subst. 
     eapply f_equal. eapply proof_irrelevance.
   - assert (true = false). congruence. inversion H.
@@ -682,9 +1176,6 @@ Proof.
     subst. eauto.
   - specialize (IHa b).
     subst. eauto.
-  - specialize (IHa1 b1).
-    specialize (IHa2 b2).
-    subst. eauto. 
   - specialize (IHa1 b1).
     specialize (IHa2 b2).
     subst. eauto. 
@@ -706,7 +1197,7 @@ Fixpoint haskind_weaken1 T: forall J' J K K1,
     has_kind (J' ++ K1 :: J) (splice (length J) 1 T) K.
 Proof.
   destruct T; intros; simpl in *.
-  - (* TStar *) inversion H; subst. eapply k_star.
+  - (* TStar *) inversion H.
   - (* TBox *) inversion H.
   - (* TBool *) inversion H; subst. eapply k_bool.
   - (* TVar *) inversion H; subst.
@@ -715,7 +1206,6 @@ Proof.
     + eapply k_var. replace (i+1) with (1+i). 2: lia.
       erewrite indexr_splice1. eauto.
   - (* TFun *) inversion H; subst. eapply k_fun. eauto. eauto.
-    (* TKArr *) eapply k_karr. eauto. eauto. 
   - (* TAll *) inversion H; subst. eapply k_all. eauto. 
     eapply haskind_weaken1 with (J':=(true,T1)::J'). eauto.
   - (* TPi *) inversion H; subst. eapply k_pi1. 
@@ -937,7 +1427,6 @@ Proof.
   intros T. induction T; intros; simpl in *.
   - (* TStar *)
     dependent destruction h1.
-    simpl. eauto.
   - (* TBox *)
     inversion h1.
   - (* TBool *)
@@ -965,8 +1454,6 @@ Proof.
     assert (val_type h1_1 h2 = val_type (haskind_weaken1 T1 J' J TStar (K1) h1_1) (envkv_weaken J' J K1 vk h2)). eapply IHT1.
     assert (val_type h1_2 h2 = val_type (haskind_weaken1 T2 J' J TStar (K1) h1_2) (envkv_weaken J' J K1 vk h2)). eapply IHT2.
     rewrite H, H0. eauto.
-    + (* TKArr *)
-    simpl. eauto.
   - (* TAll *)
     dependent destruction h1. simpl.
     assert (forall (VT1: val_sort (T1)), val_type h1 (envkv_cons (J'++J) (true,T1) VT1 h2) =
@@ -1062,7 +1549,7 @@ Fixpoint hask_subst T2: forall J' J T1 K1 K2 b,
     has_kind (J'++J) (subst T2 (length J) (splice (length J) (length J') T1)) K2.
 Proof.
   destruct T2; intros; simpl in *.
-  - (* TStar *) inversion H; subst. eapply k_star.
+  - (* TStar *) inversion H; subst. 
   - (* TBox *) inversion H.
   - (* TBool *) inversion H; subst. eapply k_bool.
   - (* TVar *)
@@ -1075,7 +1562,6 @@ Proof.
         rewrite indexr_splice2 in H2. eapply H2. eauto.
   - (* TFun *) inversion H; subst.
     + eapply k_fun. eauto. eauto.
-    + (* TKArr *) eapply k_karr. eauto. eauto. 
   - (* TAll *) inversion H; subst. eapply k_all. rewrite splice_acc.
     eapply hask_subst with (J':=(true,T2_1)::J'). eauto. eauto.
   - (* TPi *)
@@ -1129,7 +1615,7 @@ Lemma valt_subst: forall T2 J' J K1 K2 T1K WFJ T1 (h1f : has_kind (J'++(true,K1)
     val_type (hask_subst T2 J' J T1 K1 K2 true h1f HK1) WFJ.
 Proof.
   intros T2. induction T2; intros; simpl in *.
-  - (* TStar *) dependent destruction h1f. simpl. eauto.
+  - (* TStar *) dependent destruction h1f. 
   - (* TBox *) inversion h1f.
   - (* TBool *) dependent destruction h1f. simpl. eauto.
   - (* TVar *)
@@ -1161,7 +1647,6 @@ Proof.
   - (*TFun*) dependent destruction h1f; simpl.
     + assert (H21: val_type h1f1 (envkv_weaken J' J (true,K1) T1K WFJ) = val_type (hask_subst T2_1 J' J T1 (K1) TStar true h1f1 HK1) WFJ). apply IHT2_1. auto. rewrite H21.
     assert (H22: val_type h1f2 (envkv_weaken J' J (true,K1) T1K WFJ) = val_type (hask_subst T2_2 J' J T1 K1 TStar true h1f2 HK1) WFJ). apply IHT2_2. auto. rewrite H22. auto.
-    + (*TKArr*) eauto. 
   - (*TAll*) dependent destruction h1f. simpl.
     assert (HVT: forall VT1, val_type (haskind_extend_mult ((true,T2_1) :: J') T1 J (K1) HK1) (envkv_cons (J' ++ J) (true,T2_1) VT1 WFJ) = val_type (haskind_extend_mult J' T1 J (K1) HK1) WFJ). { intros.
       simpl. elim_eq_rect. simpl. elim_eq_rect. simpl.
@@ -1289,7 +1774,7 @@ Lemma has_kind_subst_inverse : forall T2 J J' T1 K1 K2,
     has_kind (J' ++ (true,K1) :: J) T2 K2.
 Proof.
   induction T2; intros; simpl in H.
-  - dependent destruction H. constructor.
+  - dependent destruction H. 
   - inversion H.
   - dependent destruction H. constructor.
   - destruct (Nat.eq_dec i (length J)); subst.
@@ -1306,7 +1791,6 @@ Proof.
       
   - dependent destruction H.
     + constructor; auto. eapply IHT2_1; eauto. eapply IHT2_2; eauto.
-    + constructor. eapply IHT2_1; eauto. eapply IHT2_2; eauto.
   - dependent destruction H. constructor; auto. specialize (IHT2_2 J ((true,T2_1) :: J') T1 K1 TStar). apply IHT2_2; auto. simpl. rewrite splice_acc in H. auto.
   - admit. 
   - inversion H.
@@ -1333,8 +1817,8 @@ Proof.
   - specialize (IHheq K); destruct IHheq. split; auto.
   - specialize (IHheq1 K); destruct IHheq1. specialize (IHheq2 K); destruct IHheq2. split; auto.
   - specialize (IHheq1 K); destruct IHheq1. specialize (IHheq2 K); destruct IHheq2. split; intros.
-    dependent destruction H. constructor; auto. constructor; auto.
-    dependent destruction H. constructor; auto. constructor; auto.
+    dependent destruction H. constructor; auto. 
+    dependent destruction H. constructor; auto. 
   - specialize (IHheq K); destruct IHheq. split; intros.
     dependent destruction H. constructor; auto.
     dependent destruction H. constructor; auto.
@@ -1493,7 +1977,7 @@ Proof.
   - apply val_type_irrel; auto.
   - specialize (IHeq_type WFJ _ h2 h1). destruct IHeq_type. split; auto.
   - specialize (eq_type_preserve_kind' H h1). intros. specialize (IHeq_type2 WFJ K H1 h2). specialize (IHeq_type1 WFJ K h1 H1). rewrite IHeq_type1. auto.
-  - dependent destruction h1; dependent destruction h2; simpl. 2: eauto. f_equal.
+  - dependent destruction h1; dependent destruction h2; simpl. f_equal.
     eapply IHeq_type1.
     eapply functional_extensionality. intros ?. erewrite IHeq_type2. eauto. 
   - dependent destruction h1. dependent destruction h2. simpl. f_equal.

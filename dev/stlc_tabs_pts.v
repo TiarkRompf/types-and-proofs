@@ -50,9 +50,10 @@ Module STLC.
 
 Definition id := nat.
 
+(* combined term and type definition *)
 Inductive tm : Type :=
   | TBool  : tm
-  | TVar   : id -> tm
+(*  | TVar   : id -> tm   <--- now using tvar x! (alias below) *)
   | TFun   : tm -> tm -> tm
   | TAll   : tm -> tm
   | ttrue  : tm
@@ -70,7 +71,9 @@ Inductive vl: Type :=
   | vtabs  :  list vl -> tm -> vl 
 .
 
+(* aliases for convenience*)
 Definition ty := tm.
+Definition TVar x := tvar x.
 
 Definition venv := list vl.
 Definition tenv := list (option ty). 
@@ -86,7 +89,7 @@ Definition kenv := list (unit). (* could just be a nat *)
 Fixpoint closed T n :=
   match T with
   | TBool => True
-  | TVar x => x < n
+(*  | TVar x => x < n *)
   | TFun T3 T4 => closed T3 n /\ closed T4 n
   | TAll T4 => closed T4 (S n)
   | ttrue => True
@@ -101,7 +104,7 @@ Fixpoint closed T n :=
 Fixpoint splice n l (T : ty) {struct T} : ty :=
   match T with
   | TBool => TBool
-  | TVar x => TVar (if x <? n then x else l+x)
+(*  | TVar x => TVar (if x <? n then x else l+x) *)
   | TFun T3 T4 => TFun (splice n l T3) (splice n l T4)
   | TAll T2 => TAll (splice n l T2)
   | ttrue => ttrue
@@ -116,7 +119,7 @@ Fixpoint splice n l (T : ty) {struct T} : ty :=
 Fixpoint subst T1 n T2 {struct T1} : ty :=
   match T1 with
   | TBool => TBool
-  | TVar x => if x =? n then T2 else if x <? n then TVar x else TVar (x-1)
+(*  | TVar x => if x =? n then T2 else if x <? n then TVar x else TVar (x-1) *)
   | TFun T3 T4 => TFun (subst T3 n T2) (subst T4 n T2)
   | TAll T4 => TAll (subst T4 n (splice n 1 T2))
   | ttrue => ttrue
@@ -176,6 +179,21 @@ Inductive has_kind : tenv -> ty -> Prop :=
     has_kind env (TAll T2)
 .
 
+(*
+Lemma hast_kinded: forall G t T,
+    (forall x T, indexr x G = Some (Some T) -> has_kind G T) ->
+    has_type G t T ->
+    has_kind G T.
+Proof.
+  intros. revert H. induction H0; intros. 
+  - eapply k_bool.
+  - eapply k_bool.
+  - eapply H0. eauto.
+  - assert (has_kind env (TFun T1 T2)) as HF. {
+      eapply IHhas_type1. eauto. }
+    inversion HF. eauto.
+  - eapply k_fun. 
+*)
 
 
 (* ---------- operational semantics ---------- *)
@@ -228,7 +246,7 @@ Fixpoint val_type (V: list (option vtype)) v T {struct T}: Prop :=
   match v, T with
   | vbool b, TBool =>  
       True
-  | v, TVar x =>
+  | v, tvar x =>
       exists vt, 
       indexr x V = Some (Some vt) /\ vt v
   | vabs H ty, TFun T1 T2 =>
@@ -284,7 +302,6 @@ Lemma closedt_extend: forall T1 n n1,
     closed T1 n1.
 Proof.
   intros T1. induction T1; simpl in *; eauto. 
-  - lia. 
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
   - intuition. eapply IHT1 in H. eauto. lia.
   - lia. 
@@ -299,7 +316,6 @@ Lemma closedt_splice: forall T1 n l n1,
     closed (splice n l T1) (l+n1).
 Proof.
   intros T1. induction T1; intros; simpl in *; eauto.
-  - bdestruct (i <? n). simpl. lia. simpl. lia.
   - intuition.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
@@ -314,7 +330,6 @@ Lemma closedt_splice': forall T1 n l n1,
     closed T1 n1.
 Proof. 
   intros T1. induction T1; intros; simpl in *; eauto.
-  - bdestruct (i <? n). simpl. lia. simpl. lia.
   - destruct H. eauto. 
   - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
@@ -332,9 +347,6 @@ Lemma closedt_subst: forall T2 T1 n n1,
 Proof.
   intros T2.
   induction T2; intros; simpl in *; eauto.
-  - bdestruct (i =? n1). eauto.
-    bdestruct (i <? n1); intuition.
-    simpl. lia. simpl. lia. 
   - intuition. 
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
   - bdestruct (i =? n1). eauto.
@@ -351,9 +363,6 @@ Lemma splice_acc: forall e1 a b c,
   splice a c (splice a b e1) =
   splice a (c+b) e1.
 Proof. induction e1; intros; simpl; intuition.
-  + bdestruct (i <? a); intuition.  
-    bdestruct (i <? a); intuition.
-    bdestruct (b+i <? a); intuition.   
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -375,10 +384,6 @@ Lemma splice_acc': forall e1 a b c,
   splice (b+a) c (splice a b e1) =
   splice a (c+b) e1.
 Proof. induction e1; intros; simpl; intuition.
-  + bdestruct (i <? a); intuition.  
-    bdestruct (i <? a); intuition.
-    bdestruct (i <? b+a); intuition.
-    bdestruct (b + i <? b + a); intuition.
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -400,7 +405,6 @@ Qed.
 Lemma splice_zero: forall e1 a,
   (splice a 0 e1) = e1.
 Proof. intros. induction e1; simpl; intuition.
-  + bdestruct (i <? a); intuition.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
   + rewrite IHe1. auto.
   + bdestruct (i <? a); intuition.
@@ -440,11 +444,6 @@ Lemma valt_weaken: forall T V V1 vt v,
 Proof.
   intros T. induction T; intros. 
   - destruct v; simpl in *; split; eauto.
-  - simpl in *. bdestruct (i <? length V); eauto; split; intros; eauto.
-    + erewrite <-indexr_insert_lt. eauto. eauto. 
-    + erewrite <-indexr_insert_lt in H0. eauto. eauto. 
-    + erewrite <-indexr_insert_ge. eauto. eauto.
-    + erewrite <-indexr_insert_ge in H0. eauto. eauto.
   - destruct v; simpl in *; split; intros; eauto.
     + destruct (H vx) as (vy & ? & VY). eapply IHT1; eauto. 
       exists vy. split. eauto. eapply IHT2; eauto. 
@@ -457,7 +456,11 @@ Proof.
       exists vy. split. eauto. eapply IHT with (V1:=Some vt0::V1); eauto. 
   - intuition. 
   - intuition. 
-  - intuition. 
+  - simpl in *. bdestruct (i <? length V); eauto; split; intros; eauto.
+    + erewrite <-indexr_insert_lt. eauto. eauto. 
+    + erewrite <-indexr_insert_lt in H0. eauto. eauto. 
+    + erewrite <-indexr_insert_ge. eauto. eauto.
+    + erewrite <-indexr_insert_ge in H0. eauto. eauto.
   - intuition. 
   - intuition. 
   - intuition. 
@@ -500,6 +503,23 @@ Lemma valt_subst_gen: forall T2 T1 v vt V V1,
 Proof.
   intros T2. induction T2; intros. 
   - destruct v; simpl in *; split; eauto.
+  - destruct v; simpl in *; split; intros; eauto.
+    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
+      exists vy. split. eauto. eapply IHT2_2; eauto.
+    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
+      exists vy. split. eauto. eapply IHT2_2; eauto.
+  - destruct v; simpl in *; split; intros; eauto.
+    + destruct (H0 vt0) as (vy & ? & VY).
+      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
+      clear H3. eapply H2 in VY. clear H2. simpl in VY.
+      rewrite splice_acc. eauto.
+    + destruct (H0 vt0) as (vy & ? & VY).
+      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
+      rewrite splice_acc in VY. 
+      clear H2. eapply H3 in VY. simpl in VY.
+      eauto.
+  - intuition.
+  - intuition.
   - simpl in *. bdestruct (i =? length V); eauto; split; intros; eauto.
     (* Todo: annoying duplication due to destructing v *)
     + subst vt. destruct v; destruct H1 as (? & H2 & H3).
@@ -534,30 +554,6 @@ Proof.
         simpl in H1. destruct i. lia. erewrite <-indexr_insert_ge. 2: lia.
         replace (S i - 1) with i in H1. 2: lia. eauto.
       }
-  - destruct v; simpl in *; split; intros; eauto.
-    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
-      exists vy. split. eauto. eapply IHT2_2; eauto.
-    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
-      exists vy. split. eauto. eapply IHT2_2; eauto.
-  - destruct v; simpl in *; split; intros; eauto.
-    + destruct (H0 vt0) as (vy & ? & VY).
-      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
-      clear H3. eapply H2 in VY. clear H2. simpl in VY.
-      rewrite splice_acc. eauto.
-    + destruct (H0 vt0) as (vy & ? & VY).
-      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
-      rewrite splice_acc in VY. 
-      clear H2. eapply H3 in VY. simpl in VY.
-      eauto.
-  - intuition.
-  - intuition.
-  - destruct v; simpl in *; intuition.
-    bdestruct (i =? length V). simpl in H0. 
-    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
-      exists vy. split. eauto. eapply IHT2_2; eauto.
-    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
-      exists vy. split. eauto. eapply IHT2_2; eauto.
-intuition.
   - intuition.
   - intuition.
   - intuition.

@@ -17,6 +17,8 @@ Notes:
 
 THIS FILE (via stlc_tabs3.v):
 - pure type system: eliminate term/type distinction
+- undo split into term (G) and type (J) env (back to single G)
+
 
 THIS FILE (via stlc_tabs2.v):
 - switch from locally nameless to pure de Bruijn levels
@@ -71,7 +73,7 @@ Inductive vl: Type :=
 Definition ty := tm.
 
 Definition venv := list vl.
-Definition tenv := list (ty). 
+Definition tenv := list (option ty). 
 Definition kenv := list (unit). (* could just be a nat *)
 
 #[global] Hint Unfold venv.
@@ -89,9 +91,9 @@ Fixpoint closed T n :=
   | TAll T4 => closed T4 (S n)
   | ttrue => True
   | tfalse => True
-  | tvar x => True (*!*)
+  | tvar x => x < n
   | tapp t1 t2 => closed t1 n /\ closed t2 n
-  | tabs t => closed t n
+  | tabs t => closed t (S n)
   | ttapp t1 T2 => closed t1 n /\ closed T2 n
   | ttabs t => closed t (S n)
   end.
@@ -101,10 +103,10 @@ Fixpoint splice n l (T : ty) {struct T} : ty :=
   | TBool => TBool
   | TVar x => TVar (if x <? n then x else l+x)
   | TFun T3 T4 => TFun (splice n l T3) (splice n l T4)
-  | TAll T2   => TAll (splice n l T2)
+  | TAll T2 => TAll (splice n l T2)
   | ttrue => ttrue
   | tfalse => tfalse
-  | tvar x => tvar x (*!*)
+  | tvar x => tvar (if x <? n then x else l+x)
   | tapp t1 t2 => tapp (splice n l t1) (splice n l t2)
   | tabs t => tabs (splice n l t)
   | ttapp t1 T2 => ttapp (splice n l t1) (splice n l T2)
@@ -119,39 +121,59 @@ Fixpoint subst T1 n T2 {struct T1} : ty :=
   | TAll T4 => TAll (subst T4 n (splice n 1 T2))
   | ttrue => ttrue
   | tfalse => tfalse
-  | tvar x => tvar x (*!*)
+  | tvar x => if x =? n then T2 else if x <? n then tvar x else tvar (x-1)
   | tapp t1 t2 => tapp (subst t1 n T2) (subst t2 n T2)
-  | tabs t => tabs (subst t n T2)
+  | tabs t => tabs (subst t n (splice n 1 T2))
   | ttapp t1 T3 => ttapp (subst t1 n T2) (subst T3 n T2)
   | ttabs t => ttabs (subst t n (splice n 1 T2))
+  end.
+
+Definition osplice n l T :=
+  match T with
+  | Some T => Some (splice n l T)
+  | None => None
   end.
 
 
 (* ---------- syntactic typing rules ---------- *)
 
-Inductive has_type : tenv -> kenv -> tm -> ty -> Prop :=
-| t_true: forall env J,
-    has_type env J ttrue TBool
-| t_false: forall env J,
-    has_type env J tfalse TBool
-| t_var: forall x env J T,
-    indexr x env = Some T ->
-    has_type env J (tvar x) T
-| t_app: forall env J f t T1 T2,
-    has_type env J f (TFun T1 T2) ->
-    has_type env J t T1 ->
-    has_type env J (tapp f t) T2
-| t_abs: forall env J t T1 T2,
-    has_type (T1::env) J t T2 ->
-    closed T1 (length J) ->
-    has_type env J (tabs t) (TFun T1 T2)
-| t_tapp: forall env J f (* t *) T1 T2,
-    has_type env J f (TAll T2) ->
-    closed T1 (length J) ->
-    has_type env J (ttapp f T1) (subst T2 (length J) T1)
-| t_tabs: forall env J t T2,
-    has_type (map (splice (length J) 1) env) (tt::J) t T2 ->
-    has_type env J (ttabs t) (TAll T2)
+Inductive has_type : tenv -> tm -> ty -> Prop :=
+| t_true: forall env,
+    has_type env ttrue TBool
+| t_false: forall env,
+    has_type env tfalse TBool
+| t_var: forall x env T,
+    indexr x env = Some (Some T) -> (* term variable *)
+    has_type env (tvar x) T
+| t_app: forall env f t T1 T2,
+    has_type env f (TFun T1 T2) ->
+    has_type env t T1 ->
+    has_type env (tapp f t) T2
+| t_abs: forall env t T1 T2,
+    has_type (map (osplice (length env) 1) (Some T1::env)) t (splice (length env) 1 T2) ->
+    closed T1 (length env) ->
+    has_type env (tabs t) (TFun T1 T2)
+| t_tapp: forall env f (* t *) T1 T2,
+    has_type env f (TAll T2) ->
+    closed T1 (length env) ->
+    has_type env (ttapp f T1) (subst T2 (length env) T1)
+| t_tabs: forall env t T2,
+    has_type (map (osplice (length env) 1) (None::env)) t T2 ->
+    has_type env (ttabs t) (TAll T2)
+.
+
+Inductive has_kind : tenv -> ty -> Prop :=
+| k_bool: forall env,
+    has_kind env TBool
+| k_var: forall env x,
+    has_kind env (TVar x)
+| k_fun: forall env T1 T2,
+    has_kind env T1 ->
+    has_kind env T2 ->
+    has_kind env (TFun T1 T2)
+| k_all: forall env T2,
+    has_kind (map (osplice (length env) 1) (None::env)) T2 ->
+    has_kind env (TAll T2)
 .
 
 
@@ -189,7 +211,7 @@ Fixpoint teval(n: nat)(env: venv)(t: tm){struct n}: option (option vl) :=
             | Some (Some (vbool _)) => Some None
             | Some (Some (vabs env2 ey)) => Some None
             | Some (Some (vtabs env2 ey)) =>
-                teval n env2 ey
+                teval n ((vbool false)::env2) ey
           end
         | _ => Some None
       end
@@ -202,13 +224,13 @@ Definition tevaln env e v := exists nm, forall n, n > nm -> teval n env e = Some
 
 Definition vtype := vl -> Prop.
 
-Fixpoint val_type (V: list vtype) v T {struct T}: Prop :=
+Fixpoint val_type (V: list (option vtype)) v T {struct T}: Prop :=
   match v, T with
   | vbool b, TBool =>  
       True
   | v, TVar x =>
       exists vt, 
-      indexr x V = Some vt /\ vt v
+      indexr x V = Some (Some vt) /\ vt v
   | vabs H ty, TFun T1 T2 =>
       forall vx,
         val_type V vx T1 ->
@@ -218,8 +240,8 @@ Fixpoint val_type (V: list vtype) v T {struct T}: Prop :=
   | vtabs H ty, TAll T2 =>
       forall vt,
         exists vy,
-          tevaln H ty vy /\
-          val_type (vt::V) vy T2
+          tevaln (vbool false::H) ty vy /\
+          val_type (Some vt::V) vy T2
   | _,_ =>
       False
   end.
@@ -229,18 +251,18 @@ Definition exp_type H V t T :=
     tevaln H t v /\
     val_type V v T.
 
-Definition env_type (H: venv) (G: tenv) (V: list vtype) (J: kenv) :=
+Definition env_type (H: venv) (G: tenv) (V: list (option vtype)) :=
   length H = length G /\
-  length V = length J /\
+  length V = length G /\
     forall x T,
-      indexr x G = Some T ->
+      indexr x G = Some (Some T) ->
       exists v,
         indexr x H = Some v /\
         val_type V v T.
 
-Definition sem_type G J t T :=
+Definition sem_type G t T :=
   forall H V,
-    env_type H G V J ->
+    env_type H G V ->
     exp_type H V t T.
 
 
@@ -265,7 +287,9 @@ Proof.
   - lia. 
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
   - intuition. eapply IHT1 in H. eauto. lia.
-  - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
+  - lia. 
+  - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto.
+  - intuition. eapply IHT1 in H. eauto. lia.
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
   - intuition. eapply IHT1 in H. eauto. lia.
 Qed.
@@ -278,9 +302,26 @@ Proof.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
   - intuition.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
-  - intuition.
+  - bdestruct (i <? n). simpl. lia. simpl. lia.
   - intuition.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
+  - intuition.
+  - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
+Qed.
+
+Lemma closedt_splice': forall T1 n l n1,
+    closed (splice n l T1) (l+n1) -> n <= n1 ->
+    closed T1 n1.
+Proof. 
+  intros T1. induction T1; intros; simpl in *; eauto.
+  - bdestruct (i <? n). simpl. lia. simpl. lia.
+  - destruct H. eauto. 
+  - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
+  - bdestruct (i <? n). simpl. lia. simpl. lia.
+  - destruct H. eauto. 
+  - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
+  - destruct H. eauto. 
+  - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
 Qed.
 
 Lemma closedt_subst: forall T2 T1 n n1,
@@ -296,7 +337,11 @@ Proof.
     simpl. lia. simpl. lia. 
   - intuition. 
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
+  - bdestruct (i =? n1). eauto.
+    bdestruct (i <? n1); intuition.
+    simpl. lia. simpl. lia. 
   - intuition.
+  - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
   - intuition.
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
 Qed.
@@ -313,6 +358,9 @@ Proof. induction e1; intros; simpl; intuition.
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
     rewrite IHe1. auto. 
+  + bdestruct (i <? a); intuition.  
+    bdestruct (i <? a); intuition.
+    bdestruct (b+i <? a); intuition.   
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -335,6 +383,10 @@ Proof. induction e1; intros; simpl; intuition.
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
     rewrite IHe1. auto. 
+  + bdestruct (i <? a); intuition.  
+    bdestruct (i <? a); intuition.
+    bdestruct (i <? b+a); intuition.
+    bdestruct (b + i <? b + a); intuition.
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -351,6 +403,7 @@ Proof. intros. induction e1; simpl; intuition.
   + bdestruct (i <? a); intuition.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
   + rewrite IHe1. auto.
+  + bdestruct (i <? a); intuition.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
   + rewrite IHe1. auto.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
@@ -399,9 +452,9 @@ Proof.
       exists vy. split. eauto. eapply IHT2; eauto. 
   - destruct v; simpl in *; split; intros; eauto.
     + destruct (H vt0) as (vy & ? & VY). 
-      exists vy. split. eauto. eapply IHT with (V1:=vt0::V1); eauto. 
+      exists vy. split. eauto. eapply IHT with (V1:=Some vt0::V1); eauto. 
     + destruct (H vt0) as (vy & ? & VY). 
-      exists vy. split. eauto. eapply IHT with (V1:=vt0::V1); eauto. 
+      exists vy. split. eauto. eapply IHT with (V1:=Some vt0::V1); eauto. 
   - intuition. 
   - intuition. 
   - intuition. 
@@ -414,13 +467,13 @@ Qed.
 Lemma valt_shrink: forall V vt v T,
     val_type (vt::V) v (splice (length V) 1 T) -> val_type V v T.
 Proof.
-  intros. eapply valt_weaken with (V:=V) (V1:=@nil vtype). eauto.
+  intros. eapply valt_weaken with (V:=V) (V1:=@nil (option vtype)). eauto.
 Qed.
 
 Lemma valt_extend: forall V vt v T,
     val_type V v T -> val_type (vt::V) v (splice (length V) 1 T).
 Proof.
-  intros. edestruct valt_weaken with (V:=V) (V1:=@nil vtype). eauto.
+  intros. edestruct valt_weaken with (V:=V) (V1:=@nil (option vtype)). eauto.
 Qed.
 
 Lemma valt_shrink_mult: forall V1 V v T,
@@ -442,7 +495,7 @@ Qed.
 
 Lemma valt_subst_gen: forall T2 T1 v vt V V1,
     vt = (fun v => val_type V v T1) ->
-    val_type (V1 ++ vt :: V) v T2 <->
+    val_type (V1 ++ (Some vt) :: V) v T2 <->
       val_type (V1++V) v (subst T2 (length V) (splice (length V) (length V1) T1)).
 Proof.
   intros T2. induction T2; intros. 
@@ -488,17 +541,23 @@ Proof.
       exists vy. split. eauto. eapply IHT2_2; eauto.
   - destruct v; simpl in *; split; intros; eauto.
     + destruct (H0 vt0) as (vy & ? & VY).
-      exists vy. split. eauto. edestruct IHT2 with (V1:=vt0::V1); eauto.
+      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
       clear H3. eapply H2 in VY. clear H2. simpl in VY.
       rewrite splice_acc. eauto.
     + destruct (H0 vt0) as (vy & ? & VY).
-      exists vy. split. eauto. edestruct IHT2 with (V1:=vt0::V1); eauto.
+      exists vy. split. eauto. edestruct IHT2 with (V1:=Some vt0::V1); eauto.
       rewrite splice_acc in VY. 
       clear H2. eapply H3 in VY. simpl in VY.
       eauto.
   - intuition.
   - intuition.
-  - intuition.
+  - destruct v; simpl in *; intuition.
+    bdestruct (i =? length V). simpl in H0. 
+    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
+      exists vy. split. eauto. eapply IHT2_2; eauto.
+    + destruct (H0 vx) as (vy & ? & VY). eapply IHT2_1; eauto.
+      exists vy. split. eauto. eapply IHT2_2; eauto.
+intuition.
   - intuition.
   - intuition.
   - intuition.
@@ -507,10 +566,10 @@ Qed.
 
 Lemma valt_subst: forall V vt v T1 T2,
     vt = (fun v => val_type V v T1) ->
-    val_type (vt::V) v T2 -> val_type V v (subst T2 (length V) T1).
+    val_type (Some vt::V) v T2 -> val_type V v (subst T2 (length V) T1).
 Proof.
   intros.
-  edestruct valt_subst_gen with (V:=V) (V1:=@nil vtype).
+  edestruct valt_subst_gen with (V:=V) (V1:=@nil (option vtype)).
   eauto. simpl in *. eapply H1 in H0. rewrite splice_zero in H0.
   eauto. 
 Qed.
@@ -519,51 +578,63 @@ Qed.
 (* ---------- LR helper lemmas  ---------- *)
 
 Lemma envt_empty:
-    env_type [] [] [] [].
+    env_type [] [] [].
 Proof.
   intros. split. 2: split.
   eauto. eauto. intros. inversion H. 
 Qed.
 
-Lemma envt_extend: forall E G V J v1 T1,
-    env_type E G V J ->
+Lemma envt_extend: forall E G V v1 T1,
+    env_type E G V ->
     val_type V v1 T1 ->
-    env_type (v1::E) (T1::G) V J.
+    env_type (v1::E) (map (osplice (length G) 1) (Some T1::G)) (None::V).
 Proof.
   intros. 
   remember H as WFE. clear HeqWFE.
   destruct H as (? & ? & ?). split. 2: split.
-  simpl. eauto. simpl. eauto. 
-  intros x T IX. bdestruct (x =? length G).
-  - subst x. rewrite indexr_head in IX. inversion IX. subst T1.
-    exists v1. split. rewrite <- H. rewrite indexr_head. eauto.
-    eauto.
+  rewrite map_length. simpl. eauto.
+  rewrite map_length. simpl. eauto. 
+  intros x T IX.
+  remember (map _ _) as M. simpl in HeqM. subst M.
+  remember (map _ _) as M. 
+  bdestruct (x =? length M).
+  - subst x. rewrite indexr_head in IX. inversion IX. subst T.
+    exists v1. split. replace (length M) with (length E). rewrite indexr_head. eauto.
+    subst M. rewrite map_length. eauto. 
+    rewrite <-H1. eapply valt_extend. eauto. 
   - rewrite indexr_skip in IX; eauto.
+    subst M. eapply indexr_map' in IX. destruct IX as (T' & IX & TEQ).
+    destruct T' as [T'|]; inversion TEQ. subst T.
     eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
-    exists v2. split. rewrite indexr_skip; eauto. lia.
-    eauto.
+    exists v2. split. rewrite indexr_skip; eauto. rewrite map_length in *. lia.
+    rewrite <-H1. eapply valt_extend. eauto. 
 Qed.
 
-Lemma envt_extend_tabs: forall E G V J vt1,
-    env_type E G V J ->
-    env_type E (map (splice (length V) 1) G) (vt1::V) (tt::J).
+Lemma envt_extend_tabs: forall E G V vt1,
+    env_type E G V ->
+    env_type (vbool false::E) (map (osplice (length G) 1) (None::G)) (Some vt1::V).
 Proof.
   intros. 
   remember H as WFE. clear HeqWFE.
   destruct H as (? & ? & ?). split. 2: split.
+  rewrite map_length. eauto. simpl. eauto.
   rewrite map_length. eauto. simpl. eauto. 
   intros x T IX.
-  eapply indexr_map' in IX. destruct IX as (T' & IX & ?). 
-  eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
-  exists v2. split. eauto. subst T. 
-  eapply valt_extend in H4. eauto. 
+  eapply indexr_map' in IX. destruct IX as (T' & IX & ?).
+  bdestruct (x =? length G).
+  - subst x. rewrite indexr_head in IX. inversion IX.
+    subst T'. inversion H2. 
+  - rewrite indexr_skip in IX. destruct T' as [T'|]; inversion H2.
+    eapply WFE in IX as IX. destruct IX as (v2 & ? & ?).
+    exists v2. split. rewrite indexr_skip. eauto. lia. subst T. 
+    rewrite <-H0. eapply valt_extend. eauto. eauto. 
 Qed.
 
 
 (* ---------- LR compatibility lemmas  ---------- *)
 
-Lemma sem_true: forall G J,
-    sem_type G J ttrue TBool.
+Lemma sem_true: forall G,
+    sem_type G ttrue TBool.
 Proof.
   intros. intros E V WFE. 
   exists (vbool true). split.
@@ -571,8 +642,8 @@ Proof.
   - simpl. eauto. 
 Qed.
 
-Lemma sem_false: forall G J,
-    sem_type G J tfalse TBool.
+Lemma sem_false: forall G,
+    sem_type G tfalse TBool.
 Proof.
   intros. intros E V WFE. 
   exists (vbool false). split.
@@ -580,9 +651,9 @@ Proof.
   - simpl. eauto. 
 Qed.
 
-Lemma sem_var: forall G J x T,
-    indexr x G = Some T ->
-    sem_type G J (tvar x) T.
+Lemma sem_var: forall G x T,
+    indexr x G = Some (Some T) ->
+    sem_type G (tvar x) T.
 Proof.
   intros. intros E V WFE.
   eapply WFE in H as IX. destruct IX as (v & IX & VX).
@@ -591,12 +662,12 @@ Proof.
   - eauto. 
 Qed.
 
-Lemma sem_app: forall G J f t T1 T2,
-    sem_type G J f (TFun T1 T2) ->
-    sem_type G J t T1 ->
-    sem_type G J (tapp f t) T2.
+Lemma sem_app: forall G f t T1 T2,
+    sem_type G f (TFun T1 T2) ->
+    sem_type G t T1 ->
+    sem_type G (tapp f t) T2.
 Proof.
-  intros ? ? ? ? ? ? HF HX. intros E V WFE.
+  intros ? ? ? ? ? HF HX. intros E V WFE.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct (HX E V WFE) as (vx & STX & VX).
   destruct vf; simpl in VF; try contradiction.
@@ -611,27 +682,28 @@ Proof.
   - eauto. 
 Qed.
 
-Lemma sem_abs: forall G J t T1 T2,
-    sem_type (T1::G) J t T2 ->
-    sem_type G J (tabs t) (TFun T1 T2).
+Lemma sem_abs: forall G t T1 T2,
+    sem_type (map (osplice (length G) 1) (Some T1::G)) t (splice (length G) 1 T2) ->
+    sem_type G (tabs t) (TFun T1 T2).
 Proof.
-  intros ? ? ? ? ? HY. intros E V WFE.
+  intros ? ? ? ? HY. intros E V WFE.
   assert (length E = length G) as L. eapply WFE.
-  assert (length V = length J) as LV. eapply WFE.
+  assert (length V = length G) as LV. eapply WFE.
   exists (vabs E t). split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. intros ? VX.
     edestruct HY as (? & ? & ?). eapply envt_extend; eauto.
-    eexists. split. eauto. eauto.
+    eexists. split. eauto.
+    eapply valt_shrink. rewrite LV. eauto. 
 Qed.
 
-Lemma sem_tapp: forall G J f (* t *) T1 T2,
-    sem_type G J f (TAll T2) ->
-    sem_type G J (ttapp f T1) (subst T2 (length J) T1).
+Lemma sem_tapp: forall G f (* t *) T1 T2,
+    sem_type G f (TAll T2) ->
+    sem_type G (ttapp f T1) (subst T2 (length G) T1).
 Proof. 
-  intros ? ? ? ? ? HF. intros E V WFE.
+  intros ? ? ? ? HF. intros E V WFE.
   assert (length E = length G) as L. eapply WFE.
-  assert (length V = length J) as LV. eapply WFE.
+  assert (length V = length G) as LV. eapply WFE.
   destruct (HF E V WFE) as (vf & STF & VF).
   destruct vf; simpl in VF; try contradiction.
   edestruct VF as (vy & STY & VY). 
@@ -645,29 +717,29 @@ Proof.
 Qed.
 
 
-Lemma sem_tabs: forall G J t T2,
-    sem_type (map (splice (length J) 1) G) (tt::J) t T2 ->
-    sem_type G J (ttabs t) (TAll T2).
+Lemma sem_tabs: forall G t T2,
+    sem_type (map (osplice (length G) 1) (None::G)) t T2 ->
+    sem_type G (ttabs t) (TAll T2).
 Proof.
-  intros ? ? ? ? HY. intros E V WFE.
+  intros ? ? ? HY. intros E V WFE.
   assert (length E = length G) as L. eapply WFE.
-  assert (length V = length J) as LV. eapply WFE.
+  assert (length V = length G) as LV. eapply WFE.
   exists (vtabs E t). split.
   - exists 0. intros. destruct n. lia. simpl. eauto.
   - simpl. intros. 
-    destruct (HY E (vt::V)) as (? & ? & ?).
-    rewrite <-LV. eapply envt_extend_tabs; eauto.
+    destruct (HY (vbool false::E) (Some vt::V)) as (? & ? & ?).
+    eapply envt_extend_tabs; eauto.
     eexists. split. eauto. eauto. 
 Qed.
 
                                                        
 (* ---------- LR fundamental property  ---------- *)
 
-Theorem fundamental: forall G J t T,
-    has_type G J t T ->
-    sem_type G J t T.
+Theorem fundamental: forall G t T,
+    has_type G t T ->
+    sem_type G t T.
 Proof.
-  intros ? ? ? ? W. 
+  intros ? ? ? W. 
   induction W.
   - eapply sem_true; eauto.
   - eapply sem_false; eauto.
@@ -679,7 +751,7 @@ Proof.
 Qed.
 
 Corollary safety: forall t T,
-  has_type [] [] t T ->
+  has_type [] t T ->
   exp_type [] [] t T.
 Proof. 
   intros. eapply fundamental in H as ST; eauto.
@@ -695,21 +767,48 @@ Qed.
 (* Note: the 'closed' predicate is not used in the proofs, but we find
    it still useful to guarantee that types are syntactically well-formed *)
 
-Lemma hast_closed: forall G J t T,
-    (forall x T1, indexr x G = Some T1 -> closed T1 (length J)) ->
-    has_type G J t T ->
-    closed T (length J).
+Lemma hast_closed: forall G t T,
+    (forall x T1, indexr x G = Some (Some T1) -> closed T1 (length G)) ->
+    has_type G t T ->
+    closed T (length G).
 Proof.
-  intros. induction H0; simpl in *; eauto. 
+  intros. induction H0; simpl; eauto. 
   - eapply IHhas_type1. eauto.
-  - split. eauto. eapply IHhas_type. intros.
-    unfold ty in *. 
-    bdestruct (x =? length env). inversion H2. subst. eauto.
-    eapply H. eauto.
+  - split. eauto.
+    assert (closed (splice (length env) 1 T2)
+                 (length
+                    (map (osplice (length env) 1) (Some T1 :: env)))). {
+    eapply IHhas_type. intros.
+    unfold ty in *.
+    remember (map _ _) as M. simpl in HeqM. subst M.
+    remember (map _ _) as M. 
+    bdestruct (x =? length M).
+    + subst x M. rewrite indexr_head in H2. inversion H2. subst T0.
+      simpl. rewrite map_length.
+      eapply closedt_splice. eauto.
+    + rewrite indexr_skip in H2. 2: eauto.
+      simpl. subst M. eapply indexr_map' in H2.
+      destruct H2 as (?&?&?). destruct x0; inversion H4.
+      subst T0. eapply H in H2. rewrite map_length.
+      eapply closedt_splice. eauto. }
+    rewrite map_length in H2. simpl in H2.
+    eapply closedt_splice' with (l:=1). eauto. eauto. 
   - eapply closedt_subst. eauto. eauto. eauto. 
-  - eapply IHhas_type. intros. eapply indexr_map' in H1.
+  - assert (closed T2
+                 (length
+                    (map (osplice (length env) 1) (None :: env)))). {
+    eapply IHhas_type. intros. eapply indexr_map' in H1.
     destruct H1 as (?&?&?). subst.
-    eapply closedt_splice. eauto. 
+    unfold ty in *.
+    bdestruct (x =? length env).
+    + subst x. rewrite indexr_head in H1. inversion H1.
+      subst x0. inversion H2.
+    + rewrite indexr_skip in H1. 2: eauto.
+      simpl. destruct x0; inversion H2. 
+      rewrite map_length.
+      eapply closedt_splice. eapply H. eauto.
+    }
+    rewrite map_length in H1. simpl in H1. eauto. 
 Qed.
 
 
@@ -718,19 +817,19 @@ Qed.
 
 (* polymorphic id function: [T:*](x:T) -> T  *)
 
-Definition polyId := ttabs (tabs (tvar 0)). 
+Definition polyId := ttabs (tabs (tvar 1)). 
 
 Definition polyIdType := TAll (TFun (TVar 0) (TVar 0)). 
 
 Lemma polyIdHasType:
-  has_type [] [] polyId polyIdType.
+  has_type [] polyId polyIdType.
 Proof.
   eapply t_tabs. eapply t_abs. eapply t_var.
   simpl. eauto. simpl. eauto. 
 Qed.
 
 Lemma polyIdAppliedHasType:
-  has_type [] [] (ttapp polyId TBool) (TFun TBool TBool).
+  has_type [] (ttapp polyId TBool) (TFun TBool TBool).
 Proof.
   replace (TFun TBool TBool) with (subst (TFun (TVar 0) (TVar 0)) 0 TBool). 
   eapply t_tapp. eapply polyIdHasType. simpl. eauto. simpl. eauto.

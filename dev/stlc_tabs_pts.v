@@ -59,6 +59,7 @@ Inductive tm : Type :=
   | ttrue  : tm
   | tfalse : tm
   | tvar   : id -> tm
+  | tif    : tm -> tm -> tm -> tm
   | tapp   : tm -> tm -> tm
   | tabs   : tm -> tm
   | ttapp  : tm -> tm(*ty*) -> tm
@@ -95,6 +96,7 @@ Fixpoint closed T n :=
   | ttrue => True
   | tfalse => True
   | tvar x => x < n
+  | tif t1 t2 t3 => closed t1 n /\ closed t2 n /\ closed t3 n
   | tapp t1 t2 => closed t1 n /\ closed t2 n
   | tabs t => closed t (S n)
   | ttapp t1 T2 => closed t1 n /\ closed T2 n
@@ -110,6 +112,7 @@ Fixpoint splice n l (T : ty) {struct T} : ty :=
   | ttrue => ttrue
   | tfalse => tfalse
   | tvar x => tvar (if x <? n then x else l+x)
+  | tif t1 t2 t3 => tif (splice n l t1) (splice n l t2) (splice n l t3)
   | tapp t1 t2 => tapp (splice n l t1) (splice n l t2)
   | tabs t => tabs (splice n l t)
   | ttapp t1 T2 => ttapp (splice n l t1) (splice n l T2)
@@ -125,6 +128,7 @@ Fixpoint subst T1 n T2 {struct T1} : ty :=
   | ttrue => ttrue
   | tfalse => tfalse
   | tvar x => if x =? n then T2 else if x <? n then tvar x else tvar (x-1)
+  | tif t1 t2 t3 => tif (subst t1 n T2) (subst t2 n T2) (subst t3 n T2)
   | tapp t1 t2 => tapp (subst t1 n T2) (subst t2 n T2)
   | tabs t => tabs (subst t n (splice n 1 T2))
   | ttapp t1 T3 => ttapp (subst t1 n T2) (subst T3 n T2)
@@ -148,6 +152,11 @@ Inductive has_type : tenv -> tm -> ty -> Prop :=
 | t_var: forall x env T,
     indexr x env = Some (Some T) -> (* term variable *)
     has_type env (tvar x) T
+| t_if: forall env t1 t2 t3 T,
+    has_type env t1 TBool ->
+    has_type env t2 T ->
+    has_type env t3 T ->
+    has_type env (tif t1 t2 t3) T
 | t_app: forall env f t T1 T2,
     has_type env f (TFun T1 T2) ->
     has_type env t T1 ->
@@ -208,6 +217,17 @@ Fixpoint teval(n: nat)(env: venv)(t: tm){struct n}: option (option vl) :=
         | tvar x     => Some (indexr x env)
         | tabs y     => Some (Some (vabs env y))
         | ttabs y    => Some (Some (vtabs env y))
+        | tif ec et ef   =>
+          match teval n env ec with
+            | None => None
+            | Some None => Some None
+            | Some (Some (vtabs env2 ey)) => Some None
+            | Some (Some (vabs env2 ey)) => Some None
+            | Some (Some (vbool true)) => 
+              teval n env et
+            | Some (Some (vbool false)) => 
+              teval n env ef
+          end
         | tapp ef ex   =>
           match teval n env ef with
             | None => None
@@ -305,6 +325,7 @@ Proof.
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
   - intuition. eapply IHT1 in H. eauto. lia.
   - lia. 
+  - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H; eauto. eapply IHT1_3 in H3; eauto.
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto.
   - intuition. eapply IHT1 in H. eauto. lia.
   - intuition. eapply IHT1_1 in H1; eauto. eapply IHT1_2 in H2; eauto. 
@@ -320,6 +341,7 @@ Proof.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
   - intuition.
+  - intuition.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
   - intuition.
   - replace (S (l+n1)) with (l+(S n1)). intuition. lia.
@@ -333,6 +355,7 @@ Proof.
   - destruct H. eauto. 
   - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
   - bdestruct (i <? n). simpl. lia. simpl. lia.
+  - destruct H as (?&?&?). split; eauto. 
   - destruct H. eauto. 
   - replace (S (l+n1)) with (l+(S n1)) in H. eapply IHT1 in H. eauto. lia. lia.
   - destruct H. eauto. 
@@ -353,6 +376,7 @@ Proof.
     bdestruct (i <? n1); intuition.
     simpl. lia. simpl. lia. 
   - intuition.
+  - intuition.
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
   - intuition.
   - eapply IHT2. eapply closedt_splice. eauto. eauto. lia.
@@ -370,6 +394,8 @@ Proof. induction e1; intros; simpl; intuition.
   + bdestruct (i <? a); intuition.  
     bdestruct (i <? a); intuition.
     bdestruct (b+i <? a); intuition.   
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c). specialize (IHe1_3 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. rewrite IHe1_3. auto.
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -392,6 +418,8 @@ Proof. induction e1; intros; simpl; intuition.
     bdestruct (i <? a); intuition.
     bdestruct (i <? b+a); intuition.
     bdestruct (b + i <? b + a); intuition.
+  + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c). specialize (IHe1_3 a b c).
+    rewrite IHe1_1. rewrite IHe1_2. rewrite IHe1_3. auto.
   + specialize (IHe1_1 a b c). specialize (IHe1_2 a b c).
     rewrite IHe1_1. rewrite IHe1_2. auto.
   + specialize (IHe1 a b c).
@@ -408,6 +436,7 @@ Proof. intros. induction e1; simpl; intuition.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
   + rewrite IHe1. auto.
   + bdestruct (i <? a); intuition.
+  + rewrite IHe1_1. rewrite IHe1_2. rewrite IHe1_3. auto.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
   + rewrite IHe1. auto.
   + rewrite IHe1_1. rewrite IHe1_2. auto.
@@ -464,6 +493,7 @@ Proof.
   - intuition. 
   - intuition. 
   - intuition. 
+  - intuition.
   - intuition. 
 Qed.
 
@@ -554,6 +584,7 @@ Proof.
         simpl in H1. destruct i. lia. erewrite <-indexr_insert_ge. 2: lia.
         replace (S i - 1) with i in H1. 2: lia. eauto.
       }
+  - intuition.
   - intuition.
   - intuition.
   - intuition.
@@ -658,6 +689,27 @@ Proof.
   - eauto. 
 Qed.
 
+Lemma sem_if: forall G t1 t2 t3 T,
+    sem_type G t1 TBool ->
+    sem_type G t2 T ->
+    sem_type G t3 T ->
+    sem_type G (tif t1 t2 t3) T.
+Proof.
+  intros ? ? ? ? ? HC HT HF. intros E V WFE.
+  destruct (HC E V WFE) as (vc & STC & VC).
+  destruct (HT E V WFE) as (vt & STT & VT).
+  destruct (HF E V WFE) as (vf & STF & VF).
+  destruct vc; simpl in VC; try contradiction.
+  exists (if b then vt else vf). split.
+  - destruct STC as (n1 & STC).
+    destruct STT as (n2 & STT).
+    destruct STF as (n3 & STF).
+    exists (1+n1+n2+n3). intros. destruct n. lia.
+    simpl. rewrite STC, STT, STF. 2,3,4: lia.
+    destruct b; eauto.
+  - destruct b; eauto. 
+Qed.
+
 Lemma sem_app: forall G f t T1 T2,
     sem_type G f (TFun T1 T2) ->
     sem_type G t T1 ->
@@ -740,6 +792,7 @@ Proof.
   - eapply sem_true; eauto.
   - eapply sem_false; eauto.
   - eapply sem_var; eauto.
+  - eapply sem_if; eauto.
   - eapply sem_app; eauto. 
   - eapply sem_abs; eauto.
   - eapply sem_tapp; eauto. 

@@ -796,13 +796,13 @@ Proof.
   - eapply sem_abs; eauto.
 Qed.
 
-Fixpoint wempty (k: nat): stty k :=
+Fixpoint stty_empty (k: nat): stty k :=
   match k with
   | 0 => tt
-  | S k => @pair (stty k) (list (stty k -> vl -> Prop)) (wempty k) []
+  | S k => @pair (stty k) (list (stty k -> vl -> Prop)) (stty_empty k) []
   end.
 
-Lemma storet_empty: forall k, store_type k (wempty k) [].
+Lemma storet_empty: forall k, store_type k (stty_empty k) [].
 Proof.
   induction k.
   - exact I.
@@ -811,7 +811,7 @@ Qed.
 
 Corollary safety: forall t T,
   has_type [] t T ->
-  forall n, exp_type T n (wempty n) [] [] t.
+  forall n, exp_type T n (stty_empty n) [] [] t.
 Proof.
   intros. eapply fundamental; eauto.
   eapply envt_empty. eapply storet_empty.

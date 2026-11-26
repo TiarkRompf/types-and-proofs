@@ -18,7 +18,7 @@ model of store typings: the finite stratified tower of Ahmed (2004).
 A world at level k holds one store typing for each level below k. A
 semantic type at level S k is a predicate over worlds at level k.
 To approximate a world one level down, take its first component
-(wpred). This is exact, so the model needs no physical/logical
+(stty_pred). This is exact, so the model needs no physical/logical
 approximation functions and no coherence conditions (istypeC,
 isstoretypeD). It also needs no axioms (no functional or propositional
 extensionality).
@@ -26,7 +26,7 @@ extensionality).
   - st_chain k M j M'     : M' (at level j <= k) extends M.
   - store_type k M S      : the store S is well-formed for M, at every level.
   - val_type T k M v      : value interpretation, by structural recursion on T.
-  - res_type T k M j v S  : v and S are good at level j, in some extension of M.
+  - stty_has k M l A      : location l has type A at every level of M.
 
 A reference value pins its store entry separately at every level j < k:
 in every extension M' of M at level S j, the entry is exactly
@@ -274,7 +274,7 @@ Proof.
 Qed.
 
 
-(* ---------- worlds: stratified store typings ---------- *)
+(* ---------- store typings: stratified worlds ---------- *)
 
 Fixpoint stty (k: nat): Type :=
   match k with
@@ -282,12 +282,12 @@ Fixpoint stty (k: nat): Type :=
   | S k => prod (stty k) (list (stty k -> vl -> Prop))
   end.
 
-(* the world one level down *)
-Definition wpred {k} (M: stty (S k)): stty k :=
+(* the store typing one level down *)
+Definition stty_pred {k} (M: stty (S k)): stty k :=
   @fst (stty k) (list (stty k -> vl -> Prop)) M.
 
-(* the store typing at the top level *)
-Definition wcurr {k} (M: stty (S k)): list (stty k -> vl -> Prop) :=
+(* the semantic types of the locations, at the top level *)
+Definition stty_top {k} (M: stty (S k)): list (stty k -> vl -> Prop) :=
   @snd (stty k) (list (stty k -> vl -> Prop)) M.
 
 (* stores and store typings grow at the head (see indexr) *)
@@ -298,11 +298,11 @@ Inductive st_chain: forall k, stty k -> forall j, stty j -> Prop :=
 | stchain_zero: forall k (M: stty k) (M': stty 0),
     st_chain k M 0 M'
 | stchain_same: forall k (M M': stty (S k)),
-    st_chain k (wpred M) k (wpred M') ->
-    stext (wcurr M) (wcurr M') ->
+    st_chain k (stty_pred M) k (stty_pred M') ->
+    stext (stty_top M) (stty_top M') ->
     st_chain (S k) M (S k) M'
 | stchain_down: forall k j (M: stty (S k)) (M': stty j),
-    st_chain k (wpred M) j M' ->
+    st_chain k (stty_pred M) j M' ->
     st_chain (S k) M j M'.
 
 Lemma stchain_refl: forall k (M: stty k), st_chain k M k M.
@@ -312,7 +312,7 @@ Proof.
   - apply stchain_same. apply IHk. exists []. reflexivity.
 Qed.
 
-Lemma stchain_pred: forall k (M: stty (S k)), st_chain (S k) M k (wpred M).
+Lemma stchain_pred: forall k (M: stty (S k)), st_chain (S k) M k (stty_pred M).
 Proof.
   intros. apply stchain_down. apply stchain_refl.
 Qed.
@@ -331,8 +331,9 @@ Definition stchain_S_motive k: stty k -> forall i, stty i -> Prop :=
       forall P: forall i, stty i -> Prop,
         (forall M3: stty 0, P 0 M3) ->
         (forall M3: stty (S k),
-            st_chain k (wpred M) k (wpred M3) -> stext (wcurr M) (wcurr M3) -> P (S k) M3) ->
-        (forall i (M3: stty i), st_chain k (wpred M) i M3 -> P i M3) ->
+            st_chain k (stty_pred M) k (stty_pred M3) ->
+            stext (stty_top M) (stty_top M3) -> P (S k) M3) ->
+        (forall i (M3: stty i), st_chain k (stty_pred M) i M3 -> P i M3) ->
         P i M3
   end.
 
@@ -361,18 +362,23 @@ Qed.
 
 (* ---------- well-formed stores ---------- *)
 
+(* a semantic type is closed under extension of the store typing
+   (the same-level counterpart of istypeA in stlc_ref_indexed.v) *)
+Definition istypeA k (vt: stty k -> vl -> Prop) :=
+  forall (M1 M2: stty k), st_chain k M1 k M2 -> forall v, vt M1 v -> vt M2 v.
+
 (* At every level S k: the store has exactly the locations of the world,
-   each stored semantic type is closed under world extension, and each
+   each stored semantic type is closed under extension, and each
    stored value inhabits its type at level k. *)
 Fixpoint store_type (k: nat): stty k -> stor -> Prop :=
   match k return stty k -> stor -> Prop with
   | 0 => fun _ _ => True
   | S k => fun M S =>
-      store_type k (wpred M) S /\
-      length S = length (wcurr M) /\
-      forall l psi, indexr l (wcurr M) = Some psi ->
-        (forall (M1 M2: stty k), st_chain k M1 k M2 -> forall v, psi M1 v -> psi M2 v) /\
-        exists w, indexr l S = Some w /\ psi (wpred M) w
+      store_type k (stty_pred M) S /\
+      length S = length (stty_top M) /\
+      forall l vt, indexr l (stty_top M) = Some vt ->
+        istypeA k vt /\
+        exists v, indexr l S = Some v /\ vt (stty_pred M) v
   end.
 
 Lemma storet_restrict: forall k (M: stty k) S, store_type k M S ->
@@ -392,29 +398,34 @@ Qed.
 (* Structural recursion on T. A reference pins its store entry at every
    level j < k, in every extension of M. *)
 Fixpoint val_type (T: ty) (k: nat) (M: stty k) (v: vl) {struct T}: Prop :=
-  match T with
-  | TBool => exists b, v = vbool b
-  | TRef A => exists l, v = vref l /\
+  match T, v with
+  | TBool, vbool b =>
+      True
+  | TRef A, vref l =>
       forall j, j < k -> forall (M': stty (S j)), st_chain k M (S j) M' ->
-        indexr l (wcurr M') = Some (fun M'' v' => val_type A j M'' v')
-  | TFun A B => exists H e, v = vabs H e /\
+        indexr l (stty_top M') = Some (fun M'' v' => val_type A j M'' v')
+  | TFun A B, vabs H e =>
       forall j, j < k -> forall (M': stty j), st_chain k M j M' ->
       forall vx, val_type A j M' vx ->
       forall S, store_type j M' S ->
       forall n' S' r, teval j S (vx::H) e = (n', S', Some r) ->
-        exists vy, r = Some vy /\
-        exists M'', st_chain j M' (j - n') M'' /\ store_type (j - n') M'' S' /\
-                    val_type B (j - n') M'' vy
+        exists M'' vy,
+          st_chain j M' (j - n') M'' /\
+          store_type (j - n') M'' S' /\
+          r = Some vy /\
+          val_type B (j - n') M'' vy
+  | _, _ =>
+      False
   end.
-
-(* result v and store S are good at level r, in some extension of M *)
-Definition res_type T k (M: stty k) r v S :=
-  exists M', st_chain k M r M' /\ store_type r M' S /\ val_type T r M' v.
 
 Definition exp_type T k (M: stty k) (H: venv) S t :=
   forall n' S' r,
     teval k S H t = (n', S', Some r) ->
-    exists v, r = Some v /\ res_type T k M (k - n') v S'.
+    exists M' v,
+      st_chain k M (k - n') M' /\
+      store_type (k - n') M' S' /\
+      r = Some v /\
+      val_type T (k - n') M' v.
 
 Definition env_type k (M: stty k) (H: venv) (G: tenv) :=
   length H = length G /\
@@ -448,12 +459,10 @@ Lemma valt_mono: forall T k j (M: stty k) (M': stty j),
     forall v, val_type T k M v -> val_type T j M' v.
 Proof.
   intros T k j M M' Hx v Hv. pose proof (stchain_le _ _ _ _ Hx).
-  destruct T; simpl in *.
+  destruct T, v; simpl in *; try contradiction.
   - auto.
-  - destruct Hv as (l & -> & Hf). exists l. split. auto.
-    intros i Hi M'' Hx'. apply Hf. lia. eapply stchain_trans; eauto.
-  - destruct Hv as (Hc & e & -> & Hf). exists Hc, e. split. auto.
-    intros i Hi M'' Hx'. apply Hf. lia. eapply stchain_trans; eauto.
+  - intros j' Hj' M'' Hx'. apply Hv. lia. eapply stchain_trans; eauto.
+  - intros j' Hj' M'' Hx'. apply Hv. lia. eapply stchain_trans; eauto.
 Qed.
 
 Lemma envt_mono: forall k j (M: stty k) (M': stty j) H G,
@@ -487,91 +496,113 @@ Proof.
 Qed.
 
 (* a result in a world M1 at level m is also good at any lower level j *)
-Lemma rest_down: forall T k (M: stty k) m (M1: stty m) S v j,
+Lemma res_down: forall T k (M: stty k) m (M1: stty m) S r v j,
     st_chain k M m M1 ->
     store_type m M1 S ->
+    r = Some v ->
     val_type T m M1 v ->
     j <= m ->
-    res_type T k M j v S.
+    exists M' v',
+      st_chain k M j M' /\
+      store_type j M' S /\
+      r = Some v' /\
+      val_type T j M' v'.
 Proof.
-  intros. destruct (storet_restrict m M1 S H0 j H2) as (M' & Hx & Hok).
-  exists M'. split. eapply stchain_trans; eauto. split. auto.
+  intros. destruct (storet_restrict m M1 S H0 j H3) as (M' & Hx & Hok).
+  exists M', v. split. eapply stchain_trans; eauto. split. auto. split. auto.
   eapply valt_mono; eauto.
 Qed.
 
 
-(* ---------- allocation and update ---------- *)
+(* ---------- extension and update ---------- *)
 
-Fixpoint stty_alloc (k: nat): stty k -> ty -> stty k :=
+(* add a fresh location of type A, at every level *)
+Fixpoint stty_extend (k: nat): stty k -> ty -> stty k :=
   match k return stty k -> ty -> stty k with
   | 0 => fun M _ => M
   | S k => fun M A =>
       @pair (stty k) (list (stty k -> vl -> Prop))
-        (stty_alloc k (wpred M) A)
-        ((fun M'' v => val_type A k M'' v) :: wcurr M)
+        (stty_extend k (stty_pred M) A)
+        ((fun M'' v => val_type A k M'' v) :: stty_top M)
   end.
 
-Lemma stchain_alloc: forall k M A, st_chain k M k (stty_alloc k M A).
+Lemma stchain_extend: forall k M A, st_chain k M k (stty_extend k M A).
 Proof.
   induction k; intros.
   - apply stchain_zero.
-  - apply stchain_same. exact (IHk (wpred M) A).
+  - apply stchain_same. exact (IHk (stty_pred M) A).
     exists [fun M'' v => val_type A k M'' v]. reflexivity.
 Qed.
 
-Lemma storet_alloc: forall k M S A v,
+Lemma storet_extend: forall k M S A v,
     store_type k M S ->
     val_type A k M v ->
-    store_type k (stty_alloc k M A) (v :: S).
+    store_type k (stty_extend k M A) (v :: S).
 Proof.
   induction k; intros M S A v H Hv.
   - exact I.
   - destruct H as (HS & Hlen & HS').
-    assert (Hx: st_chain k (wpred M) k (stty_alloc k (wpred M) A)) by apply stchain_alloc.
+    assert (Hx: st_chain k (stty_pred M) k (stty_extend k (stty_pred M) A))
+      by apply stchain_extend.
     split. 2: split.
     + exact (IHk _ _ _ _ HS (valt_mono _ _ _ _ _ (stchain_pred _ M) _ Hv)).
-    + simpl. unfold wcurr in *. lia.
-    + intros l psi Hl.
-      change (indexr l ((fun M'' v => val_type A k M'' v) :: wcurr M) = Some psi) in Hl.
-      change ((forall (M1 M2: stty k), st_chain k M1 k M2 -> forall v, psi M1 v -> psi M2 v) /\
-              exists w, indexr l (v :: S) = Some w /\ psi (stty_alloc k (wpred M) A) w).
-      bdestruct (l =? length (wcurr M)).
-      * subst l. rewrite indexr_head in Hl. inversion Hl. subst psi.
-        split. intros. eapply valt_mono; eauto.
+    + simpl. unfold stty_top in *. lia.
+    + intros l vt Hl.
+      change (indexr l ((fun M'' v => val_type A k M'' v) :: stty_top M) = Some vt) in Hl.
+      change (istypeA k vt /\
+              exists w, indexr l (v :: S) = Some w /\ vt (stty_extend k (stty_pred M) A) w).
+      bdestruct (l =? length (stty_top M)).
+      * subst l. rewrite indexr_head in Hl. inversion Hl. subst vt.
+        split. intros M1 M2 H12 v'. eapply valt_mono; eauto.
         exists v. rewrite <- Hlen, indexr_head. split. auto.
         eapply valt_mono. 2: eauto. apply stchain_down. auto.
       * rewrite indexr_skip in Hl. 2: auto.
-        destruct (HS' l psi Hl) as (Hm & w & Hw & Hpsi).
+        destruct (HS' l vt Hl) as (Hm & w & Hw & Hvt).
         split. auto. exists w. split.
         rewrite indexr_skip. auto. lia.
         eapply Hm; eauto.
 Qed.
 
-(* the fresh location has type A at every level *)
-Lemma alloc_get: forall k M S A,
-    store_type k M S ->
-    forall j, j < k ->
-    forall (M': stty (Datatypes.S j)), st_chain k (stty_alloc k M A) (Datatypes.S j) M' ->
-    indexr (length S) (wcurr M') = Some (fun M'' v => val_type A j M'' v).
+(* location l has type A at every level of M *)
+Fixpoint stty_has (k: nat): stty k -> nat -> ty -> Prop :=
+  match k return stty k -> nat -> ty -> Prop with
+  | 0 => fun _ _ _ => True
+  | S k => fun M l A =>
+      stty_has k (stty_pred M) l A /\
+      indexr l (stty_top M) = Some (fun M'' v => val_type A k M'' v)
+  end.
+
+Lemma stchain_has: forall k M j M', st_chain k M j M' ->
+    forall l A, stty_has k M l A -> stty_has j M' l A.
 Proof.
-  induction k; intros M S A H j Hj M' Hx.
-  - lia.
-  - destruct H as (HS & Hlen & _).
-    refine (stchain_inv _ _ _ _ Hx
-      (fun i (M3: stty i) =>
-         match i return stty i -> Prop with
-         | 0 => fun _ => True
-         | Datatypes.S j => fun M3 => j < Datatypes.S k ->
-             indexr (length S) (wcurr M3) = Some (fun M'' v => val_type A j M'' v)
-         end M3) _ _ _ Hj).
-    + intros. exact I.
-    + intros M3 _ [t Ht] _. rewrite Ht.
-      change (indexr (length S) (t ++ (fun M'' v => val_type A k M'' v) :: wcurr M)
-        = Some (fun M'' v => val_type A k M'' v)).
-      rewrite indexr_skips. 2: { simpl. lia. }
+  induction 1 as [k M M' | k M M' H IH Hs | k j M M' H IH]; intros l A Hl.
+  - exact I.
+  - destruct Hl as [Hl1 Hl2]. split. eapply IH; eauto.
+    destruct Hs as [t Ht]. rewrite Ht, indexr_skips. exact Hl2.
+    eapply indexr_var_some'. eauto.
+  - destruct Hl as [Hl1 _]. eapply IH; eauto.
+Qed.
+
+Lemma stty_has_ref: forall k M l A,
+    stty_has k M l A ->
+    val_type (TRef A) k M (vref l).
+Proof.
+  intros k M l A H j Hj M' Hx.
+  destruct (stchain_has _ _ _ _ Hx l A H) as [_ H']. exact H'.
+Qed.
+
+(* the fresh location has type A at every level *)
+Lemma stty_extend_hit: forall k M S A,
+    store_type k M S ->
+    stty_has k (stty_extend k M A) (length S) A.
+Proof.
+  induction k; intros M S A H.
+  - exact I.
+  - destruct H as (HS & Hlen & _). split.
+    + exact (IHk _ _ A HS).
+    + change (indexr (length S) ((fun M'' v => val_type A k M'' v) :: stty_top M)
+              = Some (fun M'' v => val_type A k M'' v)).
       rewrite Hlen. apply indexr_head.
-    + intros [|i] M3 Hx3. exact I. intros _.
-      eapply IHk. eauto. apply stchain_le in Hx3. lia. exact Hx3.
 Qed.
 
 (* same as env.update_indexr_hit, but without axioms *)
@@ -592,19 +623,18 @@ Lemma storet_update: forall k M S A l v,
 Proof.
   induction k; intros M S A l v H Hr Hv.
   - exact I.
-  - pose proof Hr as Hr0. destruct H as (HS & Hlen & HS').
+  - destruct H as (HS & Hlen & HS').
     split. 2: split.
     + eapply IHk. eauto.
       eapply valt_mono. apply stchain_pred. eauto.
       eapply valt_mono. apply stchain_pred. eauto.
     + rewrite <- update_length. auto.
-    + intros l' psi Hl'. destruct (HS' l' psi Hl') as (Hm & w & Hw & Hpsi).
+    + intros l' vt Hl'. destruct (HS' l' vt Hl') as (Hm & w & Hw & Hvt).
       split. auto.
-      destruct Hr as (l0 & Heq & Hf). injection Heq. intros. subst l0.
       bdestruct (l =? l').
       * subst l'.
-        assert (htop := Hf k (Nat.lt_succ_diag_r k) M (stchain_refl _ M)).
-        rewrite htop in Hl'. injection Hl'. intros. subst psi.
+        assert (htop := Hr k (Nat.lt_succ_diag_r k) M (stchain_refl _ M)).
+        rewrite htop in Hl'. injection Hl'. intros. subst vt.
         exists v. split. apply update_hit. eapply indexr_var_some'. eauto.
         eapply valt_mono. apply stchain_pred. eauto.
       * exists w. rewrite update_indexr_miss; auto.
@@ -613,21 +643,17 @@ Qed.
 
 (* ---------- LR compatibility lemmas ---------- *)
 
-Lemma rest_pred: forall T n (M: stty (S n)) S v,
-    store_type (Datatypes.S n) M S ->
-    val_type T (Datatypes.S n) M v ->
-    res_type T (Datatypes.S n) M n v S.
-Proof.
-  intros. eapply rest_down. apply stchain_refl. eauto. eauto. lia.
-Qed.
-
 Lemma sem_true: forall G,
     sem_type G ttrue TBool.
 Proof.
   intros G k M E S WFE ST n1 S1 r EV.
   destruct k as [|n]; inversion EV. subst.
-  exists (vbool true). split. auto.
-  replace (Datatypes.S n - 1) with n by lia. eapply rest_pred. eauto. exists true. auto.
+  eapply res_down with (M1 := M).
+  - apply stchain_refl.
+  - eauto.
+  - reflexivity.
+  - exact I.
+  - lia.
 Qed.
 
 Lemma sem_false: forall G,
@@ -635,8 +661,12 @@ Lemma sem_false: forall G,
 Proof.
   intros G k M E S WFE ST n1 S1 r EV.
   destruct k as [|n]; inversion EV. subst.
-  exists (vbool false). split. auto.
-  replace (Datatypes.S n - 1) with n by lia. eapply rest_pred. eauto. exists false. auto.
+  eapply res_down with (M1 := M).
+  - apply stchain_refl.
+  - eauto.
+  - reflexivity.
+  - exact I.
+  - lia.
 Qed.
 
 Lemma sem_var: forall G x T,
@@ -645,9 +675,13 @@ Lemma sem_var: forall G x T,
 Proof.
   intros G x T IX k M E S WFE ST n1 S1 r EV.
   destruct k as [|n]; inversion EV. subst.
-  destruct WFE as [_ WFE]. destruct (WFE x T IX) as (v & -> & Hv).
-  exists v. split. auto.
-  replace (Datatypes.S n - 1) with n by lia. eapply rest_pred; eauto.
+  destruct WFE as [_ WFE]. destruct (WFE x T IX) as (v & IXv & Hv).
+  eapply res_down with (M1 := M).
+  - apply stchain_refl.
+  - eauto.
+  - eauto.
+  - eauto.
+  - lia.
 Qed.
 
 Lemma sem_ref: forall G t T,
@@ -658,14 +692,15 @@ Proof.
   destruct k as [|n]. inversion EV. simpl in EV.
   destruct (teval n S E t) as [[nx Sx] [rx|]] eqn:EVx. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVx) as BX.
-  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
-    as (vx & -> & M1 & Hx1 & ST1 & VX).
+  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx
+              (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
+    as (M1 & vx & Hx1 & ST1 & -> & VX).
   inversion EV. subst.
-  eexists. split. eauto.
-  eapply rest_down with (M1 := stty_alloc _ M1 T).
-  - eapply stchain_trans. eauto. apply stchain_alloc.
-  - apply storet_alloc; auto.
-  - exists (length Sx). split. auto. intros. eapply alloc_get; eauto.
+  eapply res_down with (M1 := stty_extend _ M1 T).
+  - eapply stchain_trans. eauto. apply stchain_extend.
+  - apply storet_extend; auto.
+  - reflexivity.
+  - apply stty_has_ref. apply stty_extend_hit. auto.
   - lia.
 Qed.
 
@@ -677,20 +712,22 @@ Proof.
   destruct k as [|n]. inversion EV. simpl in EV.
   destruct (teval n S E t) as [[nx Sx] [rx|]] eqn:EVx. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVx) as BX.
-  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
-    as (vx & -> & M1 & Hx1 & ST1 & VX).
-  destruct VX as (l & -> & Hf).
+  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx
+              (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
+    as (M1 & vx & Hx1 & ST1 & -> & VX).
+  destruct vx as [b|l|Hc e]; try (simpl in VX; contradiction).
   inversion EV. subst.
   (* the store entry is good at level n - nx, one below the reference *)
-  destruct (storet_restrict _ M1 _ ST1 (Datatypes.S (n - nx)) ltac:(lia)) as (M1' & Hx1' & ST1').
-  assert (htop := Hf (n - nx) ltac:(lia) M1' Hx1').
+  destruct (storet_restrict _ M1 _ ST1 (Datatypes.S (n - nx)) ltac:(lia))
+    as (M1' & Hx1' & ST1').
+  assert (htop := VX (n - nx) ltac:(lia) M1' Hx1').
   destruct ST1' as (ST1'' & _ & Hall).
-  destruct (Hall l _ htop) as (_ & w & Hw & Hpsi).
-  exists w. split. auto.
-  eapply rest_down with (M1 := wpred M1').
+  destruct (Hall l _ htop) as (_ & w & Hw & Hvt).
+  eapply res_down with (M1 := stty_pred M1').
   - eapply stchain_trans. eauto. eapply stchain_trans. eauto. apply stchain_pred.
   - eauto.
-  - exact Hpsi.
+  - eauto.
+  - exact Hvt.
   - lia.
 Qed.
 
@@ -703,28 +740,31 @@ Proof.
   destruct k as [|n]. inversion EV. simpl in EV.
   destruct (teval n S E t) as [[nx Sx] [rx|]] eqn:EVx. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVx) as BX.
-  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
-    as (vx & -> & M1 & Hx1 & ST1 & VX).
-  pose proof VX as VX0. destruct VX as (l & -> & Hf).
+  destruct (HX (Datatypes.S n) M E S WFE ST nx Sx rx
+              (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n) ltac:(lia)))
+    as (M1 & vx & Hx1 & ST1 & -> & VX).
+  pose proof VX as VX0.
+  destruct vx as [b|l|Hc e]; try (simpl in VX; contradiction).
   destruct (teval (n - nx) Sx E t2) as [[ny Sy] [ry|]] eqn:EVy. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVy) as BY.
   destruct (HY (Datatypes.S n - nx) M1 E Sx (envt_mono _ _ _ _ _ _ WFE Hx1) ST1 ny Sy ry
               (eval_mono _ _ _ _ _ _ _ EVy (Datatypes.S n - nx) ltac:(lia)))
-    as (vy & -> & M2 & Hx2 & ST2 & VY).
+    as (M2 & vy & Hx2 & ST2 & -> & VY).
   (* the location is in the store, at level n - nx - ny *)
-  destruct (storet_restrict _ M2 Sy ST2 (Datatypes.S (n - nx - ny)) ltac:(lia)) as (M2' & Hx2' & ST2').
-  assert (htop := Hf (n - nx - ny) ltac:(lia) M2' (stchain_trans _ _ _ _ Hx2 _ _ Hx2')).
+  destruct (storet_restrict _ M2 Sy ST2 (Datatypes.S (n - nx - ny)) ltac:(lia))
+    as (M2' & Hx2' & ST2').
+  assert (htop := VX (n - nx - ny) ltac:(lia) M2' (stchain_trans _ _ _ _ Hx2 _ _ Hx2')).
   assert (l < length Sy) as Hlt.
   { destruct ST2' as (_ & Hlen & _). rewrite Hlen. eapply indexr_var_some'. eauto. }
   destruct (proj2 (indexr_var_some (xs := Sy)) Hlt) as (w & Hw).
   simpl in EV. rewrite Hw in EV. inversion EV. subst.
-  eexists. split. eauto.
-  eapply rest_down with (M1 := M2').
+  eapply res_down with (M1 := M2').
   - eapply stchain_trans. eauto. eapply stchain_trans; eauto.
   - eapply storet_update. eauto.
     eapply valt_mono. 2: eauto. eapply stchain_trans; eauto.
     eapply valt_mono; eauto.
-  - exists true. auto.
+  - reflexivity.
+  - exact I.
   - lia.
 Qed.
 
@@ -738,27 +778,28 @@ Proof.
   (* function *)
   destruct (teval n S E f) as [[nf S1] [rf|]] eqn:EVf. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVf) as BF.
-  destruct (HF (Datatypes.S n) M E S WFE ST nf S1 rf (eval_mono _ _ _ _ _ _ _ EVf (Datatypes.S n) ltac:(lia)))
-    as (vf & -> & M1 & Hx1 & ST1 & VF).
-  destruct VF as (Hc & e & -> & Hf).
+  destruct (HF (Datatypes.S n) M E S WFE ST nf S1 rf
+              (eval_mono _ _ _ _ _ _ _ EVf (Datatypes.S n) ltac:(lia)))
+    as (M1 & vf & Hx1 & ST1 & -> & VF).
+  destruct vf as [b|l|Hc e]; try (simpl in VF; contradiction).
   (* argument *)
   destruct (teval (n - nf) S1 E t) as [[nx S2] [rx|]] eqn:EVx. 2: inversion EV.
   pose proof (eval_bound _ _ _ _ _ _ _ EVx) as BX.
   destruct (HX (Datatypes.S n - nf) M1 E S1 (envt_mono _ _ _ _ _ _ WFE Hx1) ST1 nx S2 rx
               (eval_mono _ _ _ _ _ _ _ EVx (Datatypes.S n - nf) ltac:(lia)))
-    as (vx & -> & M2 & Hx2 & ST2 & VX).
+    as (M2 & vx & Hx2 & ST2 & -> & VX).
   (* body *)
   simpl in EV.
   destruct (teval (n - nf - nx) S2 (vx :: Hc) e) as [[ny S4] ry] eqn:EVy.
   inversion EV. subst.
   destruct (storet_restrict _ M2 S2 ST2 (n - nf - nx) ltac:(lia)) as (M2' & Hx2' & ST2').
-  destruct (Hf (n - nf - nx) ltac:(lia) M2' (stchain_trans _ _ _ _ Hx2 _ _ Hx2')
+  destruct (VF (n - nf - nx) ltac:(lia) M2' (stchain_trans _ _ _ _ Hx2 _ _ Hx2')
               vx (valt_mono _ _ _ _ _ Hx2' _ VX) _ ST2' _ _ _ EVy)
-    as (vy & -> & M3 & Hx3 & ST3 & VY).
-  eexists. split. eauto.
-  eapply rest_down with (M1 := M3).
+    as (M3 & vy & Hx3 & ST3 & -> & VY).
+  eapply res_down with (M1 := M3).
   - eapply stchain_trans. eauto. eapply stchain_trans. eauto. eapply stchain_trans; eauto.
   - eauto.
+  - reflexivity.
   - eauto.
   - lia.
 Qed.
@@ -769,12 +810,14 @@ Lemma sem_abs: forall G t T1 T2,
 Proof.
   intros G t T1 T2 HY k M E S WFE ST n1 S1 r1 EV.
   destruct k as [|n]; inversion EV. subst.
-  eexists. split. eauto.
-  replace (Datatypes.S n - 1) with n by lia. eapply rest_pred. eauto.
-  exists E, t. split. auto.
-  intros j Hj M' Hx vx Hvx S' HS' n' S'' r EVy.
-  exact (HY j M' (vx::E) S' (envt_extend _ _ _ _ _ _ (envt_mono _ _ _ _ _ _ WFE Hx) Hvx)
-            HS' n' S'' r EVy).
+  eapply res_down with (M1 := M).
+  - apply stchain_refl.
+  - eauto.
+  - reflexivity.
+  - intros j Hj M' Hx vx Hvx S' HS' n' S'' r EVy.
+    exact (HY j M' (vx::E) S' (envt_extend _ _ _ _ _ _ (envt_mono _ _ _ _ _ _ WFE Hx) Hvx)
+              HS' n' S'' r EVy).
+  - lia.
 Qed.
 
 
@@ -784,8 +827,8 @@ Theorem fundamental: forall G t T,
     has_type G t T ->
     sem_type G t T.
 Proof.
-  intros ? ? ? M.
-  induction M.
+  intros ? ? ? W.
+  induction W.
   - eapply sem_true; eauto.
   - eapply sem_false; eauto.
   - eapply sem_var; eauto.
@@ -806,7 +849,7 @@ Lemma storet_empty: forall k, store_type k (stty_empty k) [].
 Proof.
   induction k.
   - exact I.
-  - split. exact IHk. split. reflexivity. intros l psi H. inversion H.
+  - split. exact IHk. split. reflexivity. intros l vt H. inversion H.
 Qed.
 
 Corollary safety: forall t T,
@@ -822,7 +865,7 @@ Corollary safety': forall t T,
   has_type [] t T ->
   forall n n' S' r, teval n [] [] t = (n', S', Some r) -> exists v, r = Some v.
 Proof.
-  intros. edestruct (safety t T H n) as (v & ? & _). eauto. eauto.
+  intros. edestruct (safety t T H n) as (M' & v & _ & _ & ? & _). eauto. eauto.
 Qed.
 
 Print Assumptions safety'.
